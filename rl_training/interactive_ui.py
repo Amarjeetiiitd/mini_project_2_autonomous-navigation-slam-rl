@@ -1030,14 +1030,21 @@ class AutonomousNavApp:
                     if min_front_range < C.ROBOT_RADIUS + 0.08:
                         v_target = 0.0
 
-                    # Lateral Repulsive Potential Field Steering
+                    # Lateral Repulsive Potential Field & Doorway Centering
                     left_dist = float(sector_ranges[13:18].min())
                     right_dist = float(sector_ranges[7:12].min())
                     repulse_w = 0.0
-                    if left_dist < 0.45:
-                        repulse_w -= 0.7 * (1.0 - left_dist / 0.45)
-                    if right_dist < 0.45:
-                        repulse_w += 0.7 * (1.0 - right_dist / 0.45)
+
+                    # 1. Doorway & Narrow Corridor Centering Bias
+                    # If obstacles are detected on both left and right flanks, steer toward the center
+                    if left_dist < 0.65 and right_dist < 0.65:
+                        centering_bias = 0.85 * (left_dist - right_dist)
+                        repulse_w += centering_bias
+                    else:
+                        if left_dist < 0.45:
+                            repulse_w -= 0.7 * (1.0 - left_dist / 0.45)
+                        if right_dist < 0.45:
+                            repulse_w += 0.7 * (1.0 - right_dist / 0.45)
 
                     w_target = float(np.clip(w_target + repulse_w, -C.W_MAX, C.W_MAX))
 
@@ -1281,45 +1288,119 @@ class AutonomousNavApp:
                     if r < C.RANGE_MAX * 0.98:
                         self.ax.plot(bx, by, ".", color=beam_col, markersize=4, zorder=6)
 
-            # 9. Realistic TurtleBot3 Differential-Drive Robot Model
-            # A) Safety Bumper Halo
-            self.ax.add_patch(Circle((rx, ry), C.ROBOT_RADIUS + 0.04, color="#38bdf8", fill=False, linestyle=":", linewidth=1.0, alpha=0.45, zorder=7))
-
-            # B) Left and Right Drive Wheels
-            wheel_len, wheel_w = 0.13, 0.042
+            # 9. Realistic TurtleBot3 Waffle Industrial AMR Robot Model (Engineered Body)
             cos_th, sin_th = math.cos(rth), math.sin(rth)
-            lat_x, lat_y = -sin_th, cos_th  # lateral vector perpendicular to heading
-            wheel_offset = C.ROBOT_RADIUS * 0.78
+            def to_world(pts_local):
+                return [(rx + dx * cos_th - dy * sin_th, ry + dx * sin_th + dy * cos_th) for dx, dy in pts_local]
 
+            # A) Dynamic Drive State Underglow Halo
+            halo_color = "#ef4444" if (self.recovery_mode or self.current_v < 0.0) else ("#fbbf24" if self.current_v == 0.0 else "#38bdf8")
+            halo_alpha = 0.50 if self.recovery_mode else 0.30
+            self.ax.add_patch(Circle((rx, ry), C.ROBOT_RADIUS + 0.02, color=halo_color, fill=False, linestyle="--", linewidth=1.2, alpha=halo_alpha, zorder=7))
+
+            # B) Rugged Left & Right Drive Wheels with Grip Treads
+            wheel_half_l, wheel_half_w = 0.075, 0.022
             for side in [1, -1]:
-                wx = rx + side * wheel_offset * lat_x
-                wy = ry + side * wheel_offset * lat_y
-                # Wheel rectangle corners
-                p1 = (wx - 0.5 * wheel_len * cos_th - 0.5 * wheel_w * lat_x, wy - 0.5 * wheel_len * sin_th - 0.5 * wheel_w * lat_y)
-                p2 = (wx + 0.5 * wheel_len * cos_th - 0.5 * wheel_w * lat_x, wy + 0.5 * wheel_len * sin_th - 0.5 * wheel_w * lat_y)
-                p3 = (wx + 0.5 * wheel_len * cos_th + 0.5 * wheel_w * lat_x, wy + 0.5 * wheel_len * sin_th + 0.5 * wheel_w * lat_y)
-                p4 = (wx - 0.5 * wheel_len * cos_th + 0.5 * wheel_w * lat_x, wy - 0.5 * wheel_len * sin_th + 0.5 * wheel_w * lat_y)
-                self.ax.add_patch(Polygon([p1, p2, p3, p4], facecolor="#0f172a", edgecolor="#64748b", linewidth=1.0, zorder=8))
+                wy = side * 0.165
+                w_corners = [
+                    (-wheel_half_l, wy - wheel_half_w),
+                    (wheel_half_l, wy - wheel_half_w),
+                    (wheel_half_l, wy + wheel_half_w),
+                    (-wheel_half_l, wy + wheel_half_w)
+                ]
+                self.ax.add_patch(Polygon(to_world(w_corners), facecolor="#090d16", edgecolor="#475569", linewidth=1.2, zorder=8))
+                # Tire tread grooves
+                for tx in [-0.04, 0.0, 0.04]:
+                    t_p1 = to_world([(tx, wy - wheel_half_w)])[0]
+                    t_p2 = to_world([(tx, wy + wheel_half_w)])[0]
+                    self.ax.plot([t_p1[0], t_p2[0]], [t_p1[1], t_p2[1]], color="#64748b", linewidth=1.0, zorder=9)
+                # Aluminum Axle Hub
+                hub_pts = to_world([(0.0, wy)])[0]
+                self.ax.add_patch(Circle(hub_pts, 0.012, facecolor="#94a3b8", edgecolor="#cbd5e1", linewidth=0.8, zorder=10))
 
-            # C) Passive Front & Rear Casters
-            for c_offset in [C.ROBOT_RADIUS * 0.75, -C.ROBOT_RADIUS * 0.75]:
-                cx = rx + c_offset * cos_th
-                cy = ry + c_offset * sin_th
-                self.ax.add_patch(Circle((cx, cy), 0.024, facecolor="#334155", edgecolor="#64748b", linewidth=0.8, zorder=8))
+            # C) Front & Rear Heavy-Duty Swivel Caster Wheels
+            for cx_pos in [0.15, -0.15]:
+                c_hub = to_world([(cx_pos, 0.0)])[0]
+                c_bracket = [
+                    (cx_pos - 0.025, -0.025),
+                    (cx_pos + 0.025, -0.025),
+                    (cx_pos + 0.025, 0.025),
+                    (cx_pos - 0.025, 0.025)
+                ]
+                self.ax.add_patch(Polygon(to_world(c_bracket), facecolor="#1e293b", edgecolor="#475569", linewidth=0.8, zorder=8))
+                self.ax.add_patch(Circle(c_hub, 0.020, facecolor="#475569", edgecolor="#94a3b8", linewidth=0.8, zorder=9))
 
-            # D) Circular Outer Brushed-Metal Chassis
-            self.ax.add_patch(Circle((rx, ry), C.ROBOT_RADIUS * 0.92, facecolor="#1e293b", edgecolor="#38bdf8", linewidth=1.8, zorder=8))
-            # Inner Payload Deck
-            self.ax.add_patch(Circle((rx, ry), C.ROBOT_RADIUS * 0.60, facecolor="#0f172a", edgecolor="#475569", linewidth=1.0, zorder=9))
-            # Center Laser Scanner Turret
-            self.ax.add_patch(Circle((rx, ry), C.ROBOT_RADIUS * 0.28, facecolor="#0284c7", edgecolor="#38bdf8", linewidth=1.4, zorder=10))
-            self.ax.add_patch(Circle((rx, ry), 0.02, color="#f0f9ff", zorder=11))
+            # D) Industrial TurtleBot3 Waffle Main Structural Deck (Beveled AMR Chassis)
+            chassis_local = [
+                (0.18, -0.09),   # Front bumper right
+                (0.18, 0.09),    # Front bumper left
+                (0.13, 0.155),   # Front-left chamfer
+                (-0.13, 0.155),  # Left flank
+                (-0.18, 0.10),   # Rear-left corner
+                (-0.18, -0.10),  # Rear-right corner
+                (-0.13, -0.155), # Right flank
+                (0.13, -0.155),  # Front-right chamfer
+            ]
+            self.ax.add_patch(Polygon(to_world(chassis_local), facecolor="#1e293b", edgecolor="#38bdf8", linewidth=1.8, zorder=8))
 
-            # E) Directional Heading Pointer (Glowing Triangular Chevron)
-            ptr_tip = (rx + (C.ROBOT_RADIUS + 0.12) * cos_th, ry + (C.ROBOT_RADIUS + 0.12) * sin_th)
-            ptr_left = (rx + C.ROBOT_RADIUS * 0.65 * cos_th + 0.08 * lat_x, ry + C.ROBOT_RADIUS * 0.65 * sin_th + 0.08 * lat_y)
-            ptr_right = (rx + C.ROBOT_RADIUS * 0.65 * cos_th - 0.08 * lat_x, ry + C.ROBOT_RADIUS * 0.65 * sin_th - 0.08 * lat_y)
-            self.ax.add_patch(Polygon([ptr_tip, ptr_left, ptr_right], facecolor="#fde047", edgecolor="#eab308", linewidth=1.0, zorder=10))
+            # E) Secondary Tier / Carbon-Fiber Payload Deck
+            tier_local = [
+                (0.14, -0.075), (0.14, 0.075), (0.10, 0.125), (-0.11, 0.125),
+                (-0.15, 0.075), (-0.15, -0.075), (-0.11, -0.125), (0.10, -0.125)
+            ]
+            self.ax.add_patch(Polygon(to_world(tier_local), facecolor="#0b1120", edgecolor="#475569", linewidth=1.0, zorder=9))
+
+            # Extrusion Stanchion Posts (4 corner mounting pillars)
+            for px, py in [(0.09, 0.11), (0.09, -0.11), (-0.10, 0.11), (-0.10, -0.11)]:
+                pt = to_world([(px, py)])[0]
+                self.ax.add_patch(Circle(pt, 0.012, facecolor="#334155", edgecolor="#64748b", linewidth=0.8, zorder=10))
+
+            # F) Front Intel RealSense RGB-D Vision Camera & LED Headlights
+            cam_box = [
+                (0.165, -0.065), (0.185, -0.065), (0.185, 0.065), (0.165, 0.065)
+            ]
+            self.ax.add_patch(Polygon(to_world(cam_box), facecolor="#0f172a", edgecolor="#0284c7", linewidth=1.0, zorder=10))
+            # Optical Lenses & IR Projector
+            l_lens = to_world([(0.183, 0.035)])[0]
+            r_lens = to_world([(0.183, -0.035)])[0]
+            c_ir = to_world([(0.183, 0.0)])[0]
+            self.ax.add_patch(Circle(l_lens, 0.007, color="#38bdf8", zorder=11))
+            self.ax.add_patch(Circle(r_lens, 0.007, color="#38bdf8", zorder=11))
+            self.ax.add_patch(Circle(c_ir, 0.004, color="#ef4444", zorder=11))
+
+            # LED Headlights on front chamfers
+            for hx, hy in [(0.155, 0.12), (0.155, -0.12)]:
+                hl = to_world([(hx, hy)])[0]
+                self.ax.add_patch(Circle(hl, 0.009, facecolor="#f8fafc", edgecolor="#38bdf8", linewidth=0.8, zorder=10))
+
+            # G) Elevated 360° LiDAR Scanner Turret
+            lidar_center = to_world([(0.01, 0.0)])[0]
+            self.ax.add_patch(Circle(lidar_center, 0.052, facecolor="#0284c7", edgecolor="#38bdf8", linewidth=1.4, zorder=11))
+            self.ax.add_patch(Circle(lidar_center, 0.036, facecolor="#0369a1", edgecolor="#0ea5e9", linewidth=1.0, zorder=12))
+            # Rotating Laser Diode Window
+            laser_pupil = to_world([(0.030, 0.0)])[0]
+            self.ax.add_patch(Circle(laser_pupil, 0.010, color="#ef4444", zorder=13))
+            self.ax.add_patch(Circle(laser_pupil, 0.004, color="#fef2f2", zorder=14))
+
+            # H) Onboard Computer & Emergency Stop Button
+            estop_pt = to_world([(-0.12, -0.065)])[0]
+            self.ax.add_patch(Circle(estop_pt, 0.014, facecolor="#facc15", edgecolor="#ca8a04", linewidth=0.8, zorder=10))
+            self.ax.add_patch(Circle(estop_pt, 0.009, color="#dc2626", zorder=11))
+
+            # Status Indicator LEDs
+            led_pwr = to_world([(-0.06, 0.055)])[0]
+            led_wifi = to_world([(-0.08, 0.055)])[0]
+            self.ax.add_patch(Circle(led_pwr, 0.005, color="#10b981", zorder=11))
+            self.ax.add_patch(Circle(led_wifi, 0.005, color="#38bdf8", zorder=11))
+
+            # I) Directional Heading Chevron / Laser Pointer
+            chevron = [
+                (0.24, 0.0),       # Tip
+                (0.18, 0.055),     # Left wing
+                (0.195, 0.0),      # Center indent
+                (0.18, -0.055)     # Right wing
+            ]
+            self.ax.add_patch(Polygon(to_world(chevron), facecolor="#fbbf24", edgecolor="#d97706", linewidth=1.0, zorder=12))
 
             # 10. Frame Formatting
             self.ax.set_xlim(-0.3, w.width + 0.3)
