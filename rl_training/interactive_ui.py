@@ -41,10 +41,13 @@ from matplotlib.lines import Line2D
 from . import config as C
 from .baselines import DWAController, ReactiveController, PPOController, ShieldedPPOController
 from .evaluate import load_policy
-from .maps import get_bundle, collides, generate_world
+from .maps import get_bundle, collides, generate_world, make_plan_blocked
 from .nav_env import NavEnv
 from .obs import cmd_to_action, action_to_cmd, goal_in_robot_frame, build_observation
-from .planning import geodesic_field, xy_to_rc, rc_to_xy, smooth_sampler, extract_path, nearest_finite
+from .planning import (
+    geodesic_field, xy_to_rc, rc_to_xy, smooth_sampler, extract_path,
+    nearest_finite, extract_visible_waypoint, has_line_of_sight
+)
 
 
 FAMILIES = ["rooms", "corridor", "clutter", "open", "zigzag"]
@@ -73,6 +76,8 @@ class AutonomousNavApp:
         self.recovery_mode = False
         self.recovery_steps = 0
         self.recovery_direction = 1.0
+        self.stagnation_history = []
+        self.stuck_frames = 0
 
         # Mission Waypoints Queue
         self.waypoint_queue = []  # list of (x, y) tuples
@@ -802,7 +807,16 @@ class AutonomousNavApp:
         self.env.goal = np.array([gx, gy], dtype=np.float64)
         occ_shape = self.bundle.occ.shape
         target_rc = xy_to_rc(gx, gy, occ_shape)
-        self.geodesic_field_map = geodesic_field(self.bundle.plan_blocked, target_rc)
+
+        # Dynamic inflated occupancy grid including both world architecture and custom obstacles
+        blocked_grid = make_plan_blocked(self.world.width, self.world.height, self.rects_arr)
+
+        # Ensure target coordinate cell itself is not masked by inflation
+        tr, tc = target_rc
+        if 0 <= tr < occ_shape[0] and 0 <= tc < occ_shape[1]:
+            blocked_grid[max(0, tr - 1):min(occ_shape[0], tr + 2), max(0, tc - 1):min(occ_shape[1], tc + 2)] = False
+
+        self.geodesic_field_map = geodesic_field(blocked_grid, target_rc)
         self.field_sampler = smooth_sampler(self.geodesic_field_map)
         self.env.field = self.geodesic_field_map
         self.env._geo = self.field_sampler
@@ -811,6 +825,10 @@ class AutonomousNavApp:
         self.shortest_geo_len = float(self.field_sampler(rx, ry))
         self.env.shortest = self.shortest_geo_len
         self.env._prev_geo = self.shortest_geo_len
+
+        # Check reachability through obstacle configuration
+        if math.isinf(self.shortest_geo_len) or self.shortest_geo_len > 100.0:
+            self.update_status("⚠️ TARGET BLOCKED: No reachable path through obstacles!", "#ef4444")
 
     def clear_all_waypoints(self):
         self.waypoint_queue.clear()
@@ -904,14 +922,17 @@ class AutonomousNavApp:
             if not has_next:
                 return
 
-        # 2. Extract Lookahead Waypoint from Geodesic Field
+        # 2. Extract Lookahead Waypoint from Geodesic Field with Line-of-Sight Check
         lookahead_target = np.array([gx, gy])
         if self.geodesic_field_map is not None:
             occ_shape = self.bundle.occ.shape
             rc = xy_to_rc(rx, ry, occ_shape)
-            path_cells = extract_path(self.geodesic_field_map, rc, max_len=C.LOOKAHEAD)
-            if path_cells and self.geodesic_field_map[path_cells[-1]] > 0.0:
-                lookahead_target = np.array(rc_to_xy(*path_cells[-1]))
+            cand_wpt = extract_visible_waypoint(
+                self.geodesic_field_map, rc, rx, ry, self.rects_arr,
+                max_len=C.LOOKAHEAD * 1.5,
+                clearance_radius=C.ROBOT_RADIUS * 0.75
+            )
+            lookahead_target = np.array(cand_wpt)
 
         # 3. Compute LiDAR Sensor Rays
         angles_rel = self.env._angles
@@ -947,66 +968,100 @@ class AutonomousNavApp:
 
         # Smooth Goal Deceleration
         if dist_to_goal < 0.6:
-            v_target = min(v_target, C.V_MAX * (dist_to_goal / 0.6))
+            v_target = min(v_target, max(0.08, C.V_MAX * (dist_to_goal / 0.6)))
 
-        # 6. Intelligent Safety Shield & Autonomous Recovery Layer
+        # 6. Anti-Stagnation & Freeze Watchdog Layer
+        self.stagnation_history.append((rx, ry))
+        if len(self.stagnation_history) > 15:
+            self.stagnation_history.pop(0)
+
+        if len(self.stagnation_history) == 15 and dist_to_goal > C.GOAL_TOLERANCE and not self.recovery_mode:
+            past_x, past_y = self.stagnation_history[0]
+            disp = math.hypot(rx - past_x, ry - past_y)
+            if disp < 0.04:  # moved less than 4 cm in 1.5 seconds while mission active!
+                self.stuck_frames += 1
+                if self.stuck_frames >= 7:  # stuck / frozen in local minimum
+                    self.recovery_mode = True
+                    self.recovery_steps = 12
+                    self.stuck_frames = 0
+                    self.stagnation_history.clear()
+                    left_dist_val = float(sector_ranges[13:18].mean())
+                    right_dist_val = float(sector_ranges[7:12].mean())
+                    self.recovery_direction = 1.0 if left_dist_val >= right_dist_val else -1.0
+            else:
+                self.stuck_frames = 0
+
+        # 7. Intelligent Safety Shield & Autonomous Recovery Layer
         if self.safety_shield_enabled.get():
             if self.recovery_mode:
                 self.recovery_steps -= 1
-                v_target = -0.10
-                w_target = 0.8 * self.recovery_direction
+                v_target = -0.12
+                w_target = 0.90 * self.recovery_direction
                 self.safety_status_lbl.config(
-                    text=f"🔄 AUTO-RECOVERY: Reversing ({self.recovery_steps})",
+                    text=f"🔄 AUTO-RECOVERY: Unfreezing & Reversing ({self.recovery_steps})",
                     fg="#fbbf24",
                     bg="#78350f",
                 )
                 if self.recovery_steps <= 0:
                     self.recovery_mode = False
+                    self.recovery_direction = -self.recovery_direction
+                    if self.active_target is not None:
+                        self.plan_path_to_target(self.active_target[0], self.active_target[1])
             else:
-                front_sectors = sector_ranges[8:17]
-                min_front_range = float(front_sectors.min())
+                front_narrow = sector_ranges[10:15]  # ±30° narrow forward cone
+                front_wide = sector_ranges[8:17]     # ±60° wide forward arc
+                min_front_range = float(front_narrow.min())
+                min_wide_range = float(front_wide.min())
                 min_overall_range = float(sector_ranges.min())
 
-                if min_overall_range < C.ROBOT_RADIUS + 0.05:
+                if min_overall_range < C.ROBOT_RADIUS + 0.04:
                     self.recovery_mode = True
-                    self.recovery_steps = 7
+                    self.recovery_steps = 10
                     closest_idx = int(np.argmin(sector_ranges))
                     self.recovery_direction = -1.0 if closest_idx >= 12 else 1.0
-                    v_target = -0.10
-                    w_target = 0.8 * self.recovery_direction
+                    v_target = -0.12
+                    w_target = 0.90 * self.recovery_direction
                 else:
-                    clearance = max(0.0, min_front_range - C.ROBOT_RADIUS - 0.08)
+                    clearance = max(0.0, min_wide_range - C.ROBOT_RADIUS - 0.06)
                     v_allowable = math.sqrt(2.0 * C.A_V_MAX * clearance)
                     if v_target > v_allowable:
                         v_target = v_allowable
 
-                    if min_front_range < C.ROBOT_RADIUS + 0.10:
+                    if min_front_range < C.ROBOT_RADIUS + 0.08:
                         v_target = 0.0
 
                     # Lateral Repulsive Potential Field Steering
-                    left_dist = float(sector_ranges[13:17].min())
-                    right_dist = float(sector_ranges[8:12].min())
+                    left_dist = float(sector_ranges[13:18].min())
+                    right_dist = float(sector_ranges[7:12].min())
                     repulse_w = 0.0
                     if left_dist < 0.45:
-                        repulse_w -= 0.6 * (1.0 - left_dist / 0.45)
+                        repulse_w -= 0.7 * (1.0 - left_dist / 0.45)
                     if right_dist < 0.45:
-                        repulse_w += 0.6 * (1.0 - right_dist / 0.45)
+                        repulse_w += 0.7 * (1.0 - right_dist / 0.45)
 
                     w_target = float(np.clip(w_target + repulse_w, -C.W_MAX, C.W_MAX))
 
+                    # ANTI-DEADLOCK SYMMETRY BREAKING:
+                    # When linear velocity is stopped by an obstacle ahead, actively steer toward open space!
+                    if v_target == 0.0:
+                        preferred_dir = 1.0 if left_dist >= right_dist else -1.0
+                        if abs(w_target) < 0.4:
+                            w_target = 0.85 * preferred_dir
+
                     for step_i in [1, 2, 3]:
-                        pred_x = rx + step_i * v_target * math.cos(rth) * C.DT
-                        pred_y = ry + step_i * v_target * math.sin(rth) * C.DT
-                        if collides(pred_x, pred_y, self.rects_arr, radius=C.ROBOT_RADIUS + 0.03):
+                        pred_x = rx + step_i * max(v_target, 0.05) * math.cos(rth) * C.DT
+                        pred_y = ry + step_i * max(v_target, 0.05) * math.sin(rth) * C.DT
+                        if collides(pred_x, pred_y, self.rects_arr, radius=C.ROBOT_RADIUS + 0.02):
                             v_target = 0.0
-                            w_target = C.W_MAX if left_dist >= right_dist else -C.W_MAX
+                            preferred_dir = 1.0 if left_dist >= right_dist else -1.0
+                            w_target = 0.90 * preferred_dir
                             break
 
                     if v_target == 0.0:
                         self.safety_status_lbl.config(
-                            text=f"🛑 SHIELD BRAKING: Obstacle {min_front_range:.2f} m",
-                            fg="#f87171",
-                            bg="#7f1d1d",
+                            text=f"🛑 SHIELD TURNING: Avoiding Obstacle ({min_front_range:.2f} m)",
+                            fg="#fbbf24",
+                            bg="#78350f",
                         )
                     elif abs(repulse_w) > 0.1:
                         self.safety_status_lbl.config(
@@ -1036,7 +1091,7 @@ class AutonomousNavApp:
                     bg="#064e3b",
                 )
 
-        # 7. Apply Acceleration Limits
+        # 8. Apply Acceleration Limits
         dv = C.A_V_MAX * C.DT
         dw = C.A_W_MAX * C.DT
         min_v = -0.15 if self.safety_shield_enabled.get() else 0.0
@@ -1152,15 +1207,17 @@ class AutonomousNavApp:
                     self.ax.plot(pts_arr[:, 0], pts_arr[:, 1], color="#38bdf8", linestyle="-", linewidth=2.8, alpha=0.85, zorder=4)
                     self.ax.plot(pts_arr[:, 0], pts_arr[:, 1], color="#bae6fd", linestyle=":", linewidth=1.2, alpha=0.9, zorder=4)
 
-            # 3. Dynamic Lookahead Waypoint (Pulsating Orange Marker)
+            # 3. Dynamic Lookahead Waypoint (Pulsating Orange Marker with Line-of-Sight Visibility)
             if self.active_target is not None and self.geodesic_field_map is not None:
                 rx, ry, _ = self.robot_pose
                 rc = xy_to_rc(rx, ry, self.bundle.occ.shape)
-                path_cells = extract_path(self.geodesic_field_map, rc, max_len=C.LOOKAHEAD)
-                if path_cells and self.geodesic_field_map[path_cells[-1]] > 0.0:
-                    lx, ly = rc_to_xy(*path_cells[-1])
-                    self.ax.add_patch(Circle((lx, ly), 0.18, color="#fbbf24", alpha=0.25, zorder=5))
-                    self.ax.add_patch(Circle((lx, ly), 0.09, color="#f59e0b", alpha=0.9, zorder=5))
+                lx, ly = extract_visible_waypoint(
+                    self.geodesic_field_map, rc, rx, ry, self.rects_arr,
+                    max_len=C.LOOKAHEAD * 1.5,
+                    clearance_radius=C.ROBOT_RADIUS * 0.75
+                )
+                self.ax.add_patch(Circle((lx, ly), 0.18, color="#fbbf24", alpha=0.25, zorder=5))
+                self.ax.add_patch(Circle((lx, ly), 0.09, color="#f59e0b", alpha=0.9, zorder=5))
 
             # 4. Trajectory Breadcrumb Trail
             if self.show_trajectory_trail.get() and len(self.trajectory_history) > 1:

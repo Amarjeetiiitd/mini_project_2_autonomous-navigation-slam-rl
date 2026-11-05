@@ -134,6 +134,20 @@ def _inflate(occ: np.ndarray, radius: float, res: float) -> np.ndarray:
     return dist <= radius
 
 
+def make_plan_blocked(width: float, height: float, rects: np.ndarray,
+                      radius: float = C.PLAN_INFLATION,
+                      res: float = C.GRID_RES) -> np.ndarray:
+    """Generate inflated boolean occupancy grid (True = blocked) from an array of rectangles."""
+    nx, ny = int(round(width / res)), int(round(height / res))
+    occ = np.zeros((ny, nx), dtype=bool)
+    if len(rects) > 0:
+        for x0, y0, x1, y1 in rects:
+            i0, i1 = max(int(np.floor(x0 / res)), 0), min(int(np.ceil(x1 / res)), nx)
+            j0, j1 = max(int(np.floor(y0 / res)), 0), min(int(np.ceil(y1 / res)), ny)
+            occ[j0:j1, i0:i1] = True
+    return _inflate(occ, radius, res)
+
+
 @lru_cache(maxsize=4096)
 def get_bundle(seed: int, family: str | None = None) -> WorldBundle:
     w = generate_world(seed, family)

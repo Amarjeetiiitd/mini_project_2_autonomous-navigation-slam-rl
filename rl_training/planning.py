@@ -9,6 +9,7 @@ import numpy as np
 from scipy import ndimage
 
 from . import config as C
+from .maps import collides
 
 _SQ2 = math.sqrt(2.0)
 _NBRS = [(-1, 0, 1.0), (1, 0, 1.0), (0, -1, 1.0), (0, 1, 1.0),
@@ -102,3 +103,43 @@ def smooth_sampler(field: np.ndarray):
         return float(ndimage.map_coordinates(filled, coords, order=1, mode="nearest")[0])
 
     return f
+
+
+def has_line_of_sight(p1: tuple[float, float], p2: tuple[float, float],
+                      rects: np.ndarray, radius: float = C.ROBOT_RADIUS * 0.75,
+                      step: float = 0.05) -> bool:
+    """True if the straight line segment between p1 and p2 has at least `radius` clearance."""
+    if len(rects) == 0:
+        return True
+    x1, y1 = float(p1[0]), float(p1[1])
+    x2, y2 = float(p2[0]), float(p2[1])
+    dist = math.hypot(x2 - x1, y2 - y1)
+    if dist < 1e-4:
+        return not collides(x1, y1, rects, radius=radius)
+    n_pts = max(2, int(math.ceil(dist / step)))
+    xs = np.linspace(x1, x2, n_pts)
+    ys = np.linspace(y1, y2, n_pts)
+    for x, y in zip(xs, ys):
+        if collides(float(x), float(y), rects, radius=radius):
+            return False
+    return True
+
+
+def extract_visible_waypoint(field: np.ndarray, rc: tuple[int, int],
+                             rx: float, ry: float, rects: np.ndarray,
+                             max_len: float = C.LOOKAHEAD * 1.5,
+                             clearance_radius: float = C.ROBOT_RADIUS * 0.75) -> tuple[float, float]:
+    """Extract path cells from geodesic field, returning the furthest waypoint with unobstructed line of sight."""
+    path_cells = extract_path(field, rc, max_len=max_len)
+    if not path_cells:
+        return rc_to_xy(*rc)
+
+    # Check from furthest cell back to nearest for unobstructed line of sight
+    for cell in reversed(path_cells):
+        cx, cy = rc_to_xy(*cell)
+        if has_line_of_sight((rx, ry), (cx, cy), rects, radius=clearance_radius):
+            return cx, cy
+
+    # Fallback to nearest path cell
+    idx = min(1, len(path_cells) - 1)
+    return rc_to_xy(*path_cells[idx])

@@ -105,42 +105,73 @@ class PPOController(Controller):
 
 
 class ShieldedPPOController(Controller):
-    """PPO Local Policy augmented with a Dynamic Safety Shield.
+    """PPO Local Policy augmented with an Active Dynamic Safety Shield and Anti-Deadlock Governor.
     
-    Prevents collisions by applying:
+    Prevents collisions and local-minimum freezes by applying:
     1. Multi-sector forward arc collision forecasting (sectors 8 to 16, i.e. -60° to +60°)
     2. Physical stopping-distance velocity ceiling: v <= sqrt(2 * a * clearance)
     3. Lateral repulsive steering deflection away from nearby obstacle surfaces
+    4. Anti-freeze symmetry breaking: prevents w from cancelling to near-zero when v is stopped
+    5. Autonomous escape reverse maneuver when wedged in tight corners
     """
     def __init__(self, model, name: str = "ppo_shielded"):
         self.model, self.name = model, name
+        self.recovery_steps = 0
+        self.recovery_dir = 1.0
+
+    def reset(self, env):
+        self.recovery_steps = 0
+        self.recovery_dir = 1.0
 
     def act(self, env, obs):
+        # 1. Active Recovery State Machine
+        if self.recovery_steps > 0:
+            self.recovery_steps -= 1
+            return cmd_to_action(-0.12, 0.85 * self.recovery_dir)
+
+        # 2. Query Raw PPO Policy
         raw_act = self.model.predict(obs, deterministic=True)[0]
         v, w = action_to_cmd(raw_act)
 
         # Extract 24-sector ranges in meters
         sector_ranges = obs[:C.N_SECTORS] * C.RANGE_MAX
-        front_sectors = sector_ranges[8:17]  # -60° to +60°
-        min_front = float(front_sectors.min())
+        front_narrow = sector_ranges[10:15]  # ±30°
+        front_wide = sector_ranges[8:17]     # ±60°
+        min_front = float(front_narrow.min())
+        min_wide = float(front_wide.min())
+        min_overall = float(sector_ranges.min())
 
-        # 1. Predictive Stopping-Distance Governor: v^2 <= 2 * a * clearance
-        clearance = max(0.0, min_front - C.ROBOT_RADIUS - 0.08)
+        # Proximity Emergency Trigger
+        if min_overall < C.ROBOT_RADIUS + 0.04:
+            self.recovery_steps = 8
+            closest_idx = int(np.argmin(sector_ranges))
+            self.recovery_dir = -1.0 if closest_idx >= 12 else 1.0
+            return cmd_to_action(-0.12, 0.85 * self.recovery_dir)
+
+        # 3. Predictive Stopping-Distance Governor: v^2 <= 2 * a * clearance
+        clearance = max(0.0, min_wide - C.ROBOT_RADIUS - 0.06)
         v_allowable = math.sqrt(2.0 * C.A_V_MAX * clearance)
         v = min(v, v_allowable)
-        if min_front < C.ROBOT_RADIUS + 0.10:
+        if min_front < C.ROBOT_RADIUS + 0.08:
             v = 0.0
 
-        # 2. Lateral Repulsive Potential Field Steering
-        left_dist = float(sector_ranges[13:17].min())
-        right_dist = float(sector_ranges[8:12].min())
+        # 4. Lateral Repulsive Potential Field Steering
+        left_dist = float(sector_ranges[13:18].min())
+        right_dist = float(sector_ranges[7:12].min())
         repulse_w = 0.0
         if left_dist < 0.45:
-            repulse_w -= 0.6 * (1.0 - left_dist / 0.45)
+            repulse_w -= 0.7 * (1.0 - left_dist / 0.45)
         if right_dist < 0.45:
-            repulse_w += 0.6 * (1.0 - right_dist / 0.45)
+            repulse_w += 0.7 * (1.0 - right_dist / 0.45)
 
         w = float(np.clip(w + repulse_w, -C.W_MAX, C.W_MAX))
+
+        # 5. Anti-Deadlock Symmetry Breaking
+        if v == 0.0:
+            preferred_dir = 1.0 if left_dist >= right_dist else -1.0
+            if abs(w) < 0.4:
+                w = 0.85 * preferred_dir
+
         return cmd_to_action(v, w)
 
 

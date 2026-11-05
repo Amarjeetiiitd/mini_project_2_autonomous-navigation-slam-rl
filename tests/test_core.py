@@ -159,3 +159,21 @@ def test_academic_tables_export(tmp_path):
     assert t2.exists() and len(t2.read_text(encoding="utf-8")) > 100
     assert t3.exists() and len(t3.read_text(encoding="utf-8")) > 100
 
+
+def test_line_of_sight_and_visible_waypoint():
+    from rl_training.planning import has_line_of_sight, extract_visible_waypoint, geodesic_field, xy_to_rc
+    from rl_training.maps import make_plan_blocked
+    
+    # Wall in between (2.0, 0.0) and (2.0, 4.0) with thickness 0.2
+    rects = np.array([[1.9, 0.0, 2.1, 4.0]])
+    
+    # Direct line crossing wall should have NO line of sight
+    assert not has_line_of_sight((1.0, 2.0), (3.0, 2.0), rects)
+    # Line parallel to wall should have line of sight
+    assert has_line_of_sight((1.0, 1.0), (1.0, 3.0), rects)
+    
+    # Test dynamic blocked grid
+    blocked = make_plan_blocked(5.0, 5.0, rects)
+    assert blocked.shape[0] > 0 and blocked.shape[1] > 0
+    assert blocked.any()
+
