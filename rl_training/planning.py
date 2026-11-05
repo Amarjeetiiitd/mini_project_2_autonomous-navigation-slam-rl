@@ -16,8 +16,17 @@ _NBRS = [(-1, 0, 1.0), (1, 0, 1.0), (0, -1, 1.0), (0, 1, 1.0),
          (-1, -1, _SQ2), (-1, 1, _SQ2), (1, -1, _SQ2), (1, 1, _SQ2)]
 
 
+def make_clearance_penalty(blocked: np.ndarray, res: float = C.GRID_RES,
+                           margin: float = 0.45, max_penalty: float = 2.5) -> np.ndarray:
+    """Compute normalized clearance penalty: 0 in wide open corridors, higher near walls/corners."""
+    dist = ndimage.distance_transform_edt(~blocked) * res
+    penalty = np.where((dist < margin) & ~blocked, ((margin - dist) / margin) ** 2 * max_penalty, 0.0)
+    return penalty
+
+
 def geodesic_field(blocked: np.ndarray, goal_rc: tuple[int, int],
-                   res: float = C.GRID_RES) -> np.ndarray:
+                   res: float = C.GRID_RES,
+                   clearance_cost: np.ndarray | None = None) -> np.ndarray:
     """Shortest-path distance (m) from every free cell to `goal_rc`; inf if unreachable."""
     ny, nx = blocked.shape
     blk = blocked.tolist()
@@ -39,6 +48,7 @@ def geodesic_field(blocked: np.ndarray, goal_rc: tuple[int, int],
             return np.full((ny, nx), np.inf)
     dist[gr][gc] = 0.0
     heap = [(0.0, gr, gc)]
+    has_cost = clearance_cost is not None
     while heap:
         d, r, c = heapq.heappop(heap)
         if d > dist[r][c]:
@@ -49,7 +59,8 @@ def geodesic_field(blocked: np.ndarray, goal_rc: tuple[int, int],
                 continue
             if dr and dc and (blk[r + dr][c] or blk[r][c + dc]):
                 continue  # no corner cutting
-            nd = d + w * res
+            cost_mult = 1.0 + (float(clearance_cost[rr, cc]) if has_cost else 0.0)
+            nd = d + w * res * cost_mult
             if nd < dist[rr][cc]:
                 dist[rr][cc] = nd
                 heapq.heappush(heap, (nd, rr, cc))

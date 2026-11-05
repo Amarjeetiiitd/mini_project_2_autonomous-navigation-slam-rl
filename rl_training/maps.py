@@ -120,6 +120,15 @@ def collides(x: float, y: float, rects: np.ndarray, radius: float = C.ROBOT_RADI
     return bool(np.any(ddx * ddx + ddy * ddy < radius * radius))
 
 
+def rect_clearance(x: float, y: float, rects: np.ndarray) -> float:
+    """Distance (m) from point (x, y) to the nearest rectangle edge."""
+    if len(rects) == 0:
+        return 10.0
+    ddx = np.maximum(np.maximum(rects[:, 0] - x, x - rects[:, 2]), 0.0)
+    ddy = np.maximum(np.maximum(rects[:, 1] - y, y - rects[:, 3]), 0.0)
+    return float(np.sqrt(np.min(ddx * ddx + ddy * ddy)))
+
+
 # ----------------------------------------------------------- cached bundle
 @dataclass
 class WorldBundle:

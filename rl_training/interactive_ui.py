@@ -41,12 +41,12 @@ from matplotlib.lines import Line2D
 from . import config as C
 from .baselines import DWAController, ReactiveController, PPOController, ShieldedPPOController
 from .evaluate import load_policy
-from .maps import get_bundle, collides, generate_world, make_plan_blocked
+from .maps import get_bundle, collides, rect_clearance, generate_world, make_plan_blocked
 from .nav_env import NavEnv
 from .obs import cmd_to_action, action_to_cmd, goal_in_robot_frame, build_observation
 from .planning import (
     geodesic_field, xy_to_rc, rc_to_xy, smooth_sampler, extract_path,
-    nearest_finite, extract_visible_waypoint, has_line_of_sight
+    nearest_finite, extract_visible_waypoint, has_line_of_sight, make_clearance_penalty
 )
 
 
@@ -78,6 +78,13 @@ class AutonomousNavApp:
         self.recovery_direction = 1.0
         self.stagnation_history = []
         self.stuck_frames = 0
+
+        # Dynamic Impasse & Alternative Path Discovery Layer
+        self.dynamic_impasses = []  # list of {"x": float, "y": float, "radius": float, "timestamp": float}
+        self.boundary_hold_count = 0
+        self.last_boundary_hold_pos = None
+        self.reroute_count = 0
+        self.last_reroute_step = -100
 
         # Mission Waypoints Queue
         self.waypoint_queue = []  # list of (x, y) tuples
@@ -180,6 +187,11 @@ class AutonomousNavApp:
         self.geodesic_field_map = None
         self.field_sampler = None
         self.shortest_geo_len = 0.0
+        self.dynamic_impasses.clear()
+        self.boundary_hold_count = 0
+        self.last_boundary_hold_pos = None
+        self.reroute_count = 0
+        self.last_reroute_step = -100
 
         ny, nx = self.bundle.occ.shape
         self.discovered_grid = np.zeros((ny, nx), dtype=bool)
@@ -224,6 +236,11 @@ class AutonomousNavApp:
         self.current_v = 0.0
         self.current_w = 0.0
         self.is_running = False
+        self.dynamic_impasses.clear()
+        self.boundary_hold_count = 0
+        self.last_boundary_hold_pos = None
+        self.reroute_count = 0
+        self.last_reroute_step = -100
         self.btn_run.config(text="▶ START MISSION", bg="#059669")
         if len(self.trajectory_history) > 0:
             start_pos = self.trajectory_history[0]
@@ -585,6 +602,7 @@ class AutonomousNavApp:
         fields = [
             ("Target Destination:", "target_xy", "(Click Map to Set)"),
             ("Waypoint Queue:", "wp_queue", "0 Remaining"),
+            ("Route Planning:", "route_status", "Optimal Direct"),
             ("Robot Pose (X, Y, θ):", "robot_pose", "0.00m, 0.00m, 0.0°"),
             ("Linear Velocity (v):", "v_metric", "0.00 m/s"),
             ("Yaw Angular Rate (ω):", "w_metric", "0.00 rad/s"),
@@ -728,6 +746,11 @@ class AutonomousNavApp:
             self.update_status("Clicked inside an impassable obstacle! Please click on free floor space.", "#ef4444")
             return
 
+        self.dynamic_impasses.clear()
+        self.boundary_hold_count = 0
+        self.last_boundary_hold_pos = None
+        self.reroute_count = 0
+        self.last_reroute_step = -100
         self.waypoint_queue.clear()
         self.completed_waypoints.clear()
         self.active_target = (tx, ty)
@@ -811,12 +834,28 @@ class AutonomousNavApp:
         # Dynamic inflated occupancy grid including both world architecture and custom obstacles
         blocked_grid = make_plan_blocked(self.world.width, self.world.height, self.rects_arr)
 
+        # Apply active dynamic impasse blocks (trapped/pinched passages)
+        ny, nx = occ_shape
+        for imp in self.dynamic_impasses:
+            ix, iy, ir = imp["x"], imp["y"], imp["radius"]
+            irc = xy_to_rc(ix, iy, occ_shape)
+            r_cells = int(math.ceil(ir / C.GRID_RES))
+            for dr in range(-r_cells, r_cells + 1):
+                for dc in range(-r_cells, r_cells + 1):
+                    if dr * dr + dc * dc <= r_cells * r_cells:
+                        rr, cc = irc[0] + dr, irc[1] + dc
+                        if 0 <= rr < ny and 0 <= cc < nx:
+                            # Protect immediate target vicinity
+                            if abs(rr - target_rc[0]) > 2 or abs(cc - target_rc[1]) > 2:
+                                blocked_grid[rr, cc] = True
+
         # Ensure target coordinate cell itself is not masked by inflation
         tr, tc = target_rc
         if 0 <= tr < occ_shape[0] and 0 <= tc < occ_shape[1]:
             blocked_grid[max(0, tr - 2):min(occ_shape[0], tr + 3), max(0, tc - 2):min(occ_shape[1], tc + 3)] = False
 
-        self.geodesic_field_map = geodesic_field(blocked_grid, target_rc)
+        clearance_cost = make_clearance_penalty(blocked_grid)
+        self.geodesic_field_map = geodesic_field(blocked_grid, target_rc, clearance_cost=clearance_cost)
         self.field_sampler = smooth_sampler(self.geodesic_field_map)
         self.env.field = self.geodesic_field_map
         self.env._geo = self.field_sampler
@@ -830,9 +869,64 @@ class AutonomousNavApp:
         if math.isinf(self.shortest_geo_len) or self.shortest_geo_len > 100.0:
             self.update_status("⚠️ TARGET BLOCKED: No reachable path through obstacles!", "#ef4444")
 
+    def trigger_alternative_path_reroute(self, reason: str = "Pinch point impasse detected") -> bool:
+        if self.active_target is None:
+            return False
+        # Cooldown check: do not spam reroutes within 20 steps
+        if self.step_count - self.last_reroute_step < 20:
+            return False
+
+        rx, ry, rth = self.robot_pose
+        gx, gy = self.active_target
+
+        ahead_x = rx + 0.18 * math.cos(rth)
+        ahead_y = ry + 0.18 * math.sin(rth)
+
+        # Duplicate check: don't place another impasse if one already exists near here
+        if any(math.hypot(ahead_x - old["x"], ahead_y - old["y"]) < 0.40 for old in self.dynamic_impasses):
+            return False
+
+        if len(self.dynamic_impasses) >= 6:
+            self.dynamic_impasses.pop(0)
+
+        imp_entry = {
+            "x": ahead_x,
+            "y": ahead_y,
+            "radius": 0.45,
+            "timestamp": time.time(),
+            "reason": reason,
+        }
+        self.dynamic_impasses.append(imp_entry)
+        self.reroute_count += 1
+        self.last_reroute_step = self.step_count
+
+        self.plan_path_to_target(gx, gy)
+
+        # Verify alternative path reachability
+        if not math.isinf(self.shortest_geo_len) and self.shortest_geo_len < 100.0:
+            self.update_status("🔄 ALTERNATIVE ROUTE DISCOVERED: Bypassing impasse via open corridor!", "#34d399")
+            self.recovery_mode = True
+            self.recovery_steps = 14
+            self.stuck_frames = 0
+            self.stagnation_history.clear()
+            self.boundary_hold_count = 0
+            return True
+        else:
+            # Impasse blocked the only existing path to goal
+            if imp_entry in self.dynamic_impasses:
+                self.dynamic_impasses.remove(imp_entry)
+            self.plan_path_to_target(gx, gy)
+            self.update_status("⚠️ NO ALTERNATIVE PATH: Single passage only, attempting disengagement...", "#fbbf24")
+            return False
+
     def clear_all_waypoints(self):
         self.waypoint_queue.clear()
         self.completed_waypoints.clear()
+        self.dynamic_impasses.clear()
+        self.boundary_hold_count = 0
+        self.last_boundary_hold_pos = None
+        self.reroute_count = 0
+        self.last_reroute_step = -100
         self.active_target = None
         self.is_running = False
         self.btn_run.config(text="▶  START MISSION", bg="#059669")
@@ -841,6 +935,11 @@ class AutonomousNavApp:
 
     def clear_custom_obstacles(self):
         self.custom_obstacles.clear()
+        self.dynamic_impasses.clear()
+        self.boundary_hold_count = 0
+        self.last_boundary_hold_pos = None
+        self.reroute_count = 0
+        self.last_reroute_step = -100
         self.rects = list(self.world.rects)
         self.rects_arr = np.array(self.rects)
         self.env.rects = self.rects_arr
@@ -980,14 +1079,16 @@ class AutonomousNavApp:
             disp = math.hypot(rx - past_x, ry - past_y)
             if disp < 0.04:  # moved less than 4 cm in 1.5 seconds while mission active!
                 self.stuck_frames += 1
-                if self.stuck_frames >= 7:  # stuck / frozen in local minimum
-                    self.recovery_mode = True
-                    self.recovery_steps = 12
+                if self.stuck_frames >= 4:  # stuck / frozen in local minimum
+                    rerouted = self.trigger_alternative_path_reroute("Robot stalled in pinch point")
+                    if not rerouted:
+                        self.recovery_mode = True
+                        self.recovery_steps = 12
+                        left_dist_val = float(sector_ranges[13:18].mean())
+                        right_dist_val = float(sector_ranges[7:12].mean())
+                        self.recovery_direction = 1.0 if left_dist_val >= right_dist_val else -1.0
                     self.stuck_frames = 0
                     self.stagnation_history.clear()
-                    left_dist_val = float(sector_ranges[13:18].mean())
-                    right_dist_val = float(sector_ranges[7:12].mean())
-                    self.recovery_direction = 1.0 if left_dist_val >= right_dist_val else -1.0
             else:
                 self.stuck_frames = 0
 
@@ -999,18 +1100,40 @@ class AutonomousNavApp:
             min_rear_range = float(rear_sectors.min())
             rear_blocked = min_rear_range < (C.ROBOT_RADIUS + 0.08)
 
+            front_narrow = sector_ranges[10:15]
+            min_front_range = float(front_narrow.min())
+
             if self.recovery_mode:
                 self.recovery_steps -= 1
-                if rear_blocked:
-                    # Rear is blocked! Pivot in place instead of reversing into wall behind
-                    v_target = 0.0
-                    w_target = 1.0 * self.recovery_direction
+
+                # Angle and distance to lookahead waypoint (from global / alternative path)
+                rel_wpt_dist, rel_wpt_ang = goal_in_robot_frame(self.robot_pose, lookahead_target)
+
+                # Sector clearance along lookahead waypoint direction
+                wpt_sec = int(np.clip(int(round((rel_wpt_ang + math.pi) / (2 * math.pi) * 24)) % 24, 0, 23))
+                wpt_clearance = float(sector_ranges[wpt_sec])
+
+                # If robot is aligned with lookahead target and front is clear: DRIVE FORWARD!
+                if abs(rel_wpt_ang) < math.radians(45) and min_front_range > C.ROBOT_RADIUS + 0.08:
+                    v_target = 0.12
+                    w_target = float(np.clip(rel_wpt_ang * 2.0, -C.W_MAX, C.W_MAX))
                     self.safety_status_lbl.config(
-                        text=f"🔄 AUTO-RECOVERY: Pivoting in Place ({self.recovery_steps})",
+                        text=f"🚀 DISENGAGING: Driving toward Open Path ({self.recovery_steps})",
+                        fg="#34d399",
+                        bg="#064e3b",
+                    )
+                elif abs(rel_wpt_ang) >= math.radians(25):
+                    # Turn in place directly toward the open lookahead waypoint
+                    v_target = 0.0
+                    turn_dir = 1.0 if rel_wpt_ang > 0 else -1.0
+                    w_target = 0.95 * turn_dir
+                    self.safety_status_lbl.config(
+                        text=f"🔄 ALIGNING: Turning to Alternative Path ({self.recovery_steps})",
                         fg="#fbbf24",
                         bg="#78350f",
                     )
-                else:
+                elif not rear_blocked and min_front_range < C.ROBOT_RADIUS + 0.08:
+                    # Front blocked, rear clear: back away from pinch
                     v_target = -0.12
                     w_target = 0.85 * self.recovery_direction
                     self.safety_status_lbl.config(
@@ -1018,21 +1141,25 @@ class AutonomousNavApp:
                         fg="#fbbf24",
                         bg="#78350f",
                     )
+                else:
+                    # Both front and rear tight: pivot toward max LiDAR clearance sector
+                    best_sec = int(np.argmax(sector_ranges))
+                    best_ang = -math.pi + (best_sec + 0.5) * (2 * math.pi / 24)
+                    turn_dir = 1.0 if best_ang > 0 else -1.0
+                    v_target = 0.0
+                    w_target = 0.95 * turn_dir
+                    self.safety_status_lbl.config(
+                        text=f"🔄 AUTO-RECOVERY: Pivoting to Clear Sector ({self.recovery_steps})",
+                        fg="#fbbf24",
+                        bg="#78350f",
+                    )
 
-                # Exit gate: verify front is clear before exiting recovery
-                front_narrow = sector_ranges[10:15]
-                min_front_range = float(front_narrow.min())
                 if self.recovery_steps <= 0:
-                    if min_front_range < C.ROBOT_RADIUS + 0.12:
-                        # Front still faces obstacle; spend 2 more steps pivoting to open space
-                        self.recovery_steps = 2
-                        v_target = 0.0
-                        w_target = 1.0 * self.recovery_direction
+                    if min_front_range < C.ROBOT_RADIUS + 0.08:
+                        self.recovery_steps = 3
                     else:
                         self.recovery_mode = False
-                        self.recovery_direction = -self.recovery_direction
-                        if self.active_target is not None:
-                            self.plan_path_to_target(self.active_target[0], self.active_target[1])
+                        self.update_status("Mission resumed on clear path.", "#34d399")
             else:
                 front_narrow = sector_ranges[10:15]  # ±30° narrow forward cone
                 front_wide = sector_ranges[8:17]     # ±60° wide forward arc
@@ -1144,25 +1271,50 @@ class AutonomousNavApp:
         cand_th = rth + self.current_w * C.DT
         cand_th = (cand_th + math.pi) % (2 * math.pi) - math.pi
 
+        curr_clr = rect_clearance(rx, ry, self.rects_arr)
+        cand_clr = rect_clearance(cand_x, cand_y, self.rects_arr)
+
         if collides(cand_x, cand_y, self.rects_arr, radius=C.ROBOT_RADIUS + 0.005):
-            # Try sliding along X or Y if diagonal step collides
-            if not collides(cand_x, ry, self.rects_arr, radius=C.ROBOT_RADIUS + 0.005):
+            # If the candidate step INCREASES clearance (robot actively moving away/disengaging): allow it!
+            if cand_clr > curr_clr + 1e-5:
+                nx, ny, nth = cand_x, cand_y, cand_th
+            # Try sliding along X or Y if that increases clearance or is free:
+            elif not collides(cand_x, ry, self.rects_arr, radius=C.ROBOT_RADIUS + 0.005) or (rect_clearance(cand_x, ry, self.rects_arr) > curr_clr + 1e-5):
                 nx, ny, nth = cand_x, ry, cand_th
-            elif not collides(rx, cand_y, self.rects_arr, radius=C.ROBOT_RADIUS + 0.005):
+            elif not collides(rx, cand_y, self.rects_arr, radius=C.ROBOT_RADIUS + 0.005) or (rect_clearance(rx, cand_y, self.rects_arr) > curr_clr + 1e-5):
                 nx, ny, nth = rx, cand_y, cand_th
             else:
                 # Fully blocked in translation: clamp position to prevent penetration, allow rotation
                 nx, ny = rx, ry
                 self.current_v = 0.0
                 nth = cand_th
-                if not self.recovery_mode:
-                    self.recovery_mode = True
-                    self.recovery_steps = 6
-                    closest_idx = int(np.argmin(sector_ranges))
-                    self.recovery_direction = -1.0 if closest_idx >= 12 else 1.0
-                    self.update_status("🛡️ SAFETY SHIELD: Boundary hold — aligning to passage...", "#d97706")
+
+                # Only track boundary hold if the robot actually attempted to translate into the wall
+                if abs(cand_x - rx) > 1e-4 or abs(cand_y - ry) > 1e-4:
+                    if self.last_boundary_hold_pos is not None:
+                        dist_to_last = math.hypot(rx - self.last_boundary_hold_pos[0], ry - self.last_boundary_hold_pos[1])
+                        if dist_to_last < 0.25:
+                            self.boundary_hold_count += 1
+                        else:
+                            self.boundary_hold_count = 1
+                    else:
+                        self.boundary_hold_count = 1
+                    self.last_boundary_hold_pos = (rx, ry)
+
+                    if self.boundary_hold_count >= 3:
+                        # Repeated boundary holds in this tight corridor -> trigger dynamic alternative reroute!
+                        self.trigger_alternative_path_reroute("Repeated boundary hold in pinch")
+                        self.boundary_hold_count = 0
+                    elif not self.recovery_mode:
+                        self.recovery_mode = True
+                        self.recovery_steps = 8
+                        closest_idx = int(np.argmin(sector_ranges))
+                        self.recovery_direction = -1.0 if closest_idx >= 12 else 1.0
+                        self.update_status("🛡️ SAFETY SHIELD: Boundary hold — aligning to passage...", "#d97706")
         else:
             nx, ny, nth = cand_x, cand_y, cand_th
+            if self.boundary_hold_count > 0:
+                self.boundary_hold_count = max(0, self.boundary_hold_count - 1)
 
         # 9. Physical Collision Check (when shield is disabled)
         if not self.safety_shield_enabled.get() and collides(nx, ny, self.rects_arr, radius=C.ROBOT_RADIUS):
@@ -1233,6 +1385,19 @@ class AutonomousNavApp:
                     linewidth=1.5, alpha=0.35, zorder=10
                 )
                 self.ax.add_patch(preview_rect)
+
+            # Dynamic Impasse Zones (Visual Marker for Alternative Path Rerouting)
+            for imp in self.dynamic_impasses:
+                ix, iy, ir = imp["x"], imp["y"], imp["radius"]
+                circ = Circle(
+                    (ix, iy), ir, facecolor="#f97316", edgecolor="#ea580c",
+                    linestyle="--", linewidth=1.2, alpha=0.22, zorder=3
+                )
+                self.ax.add_patch(circ)
+                self.ax.text(
+                    ix, iy, "⚠️ IMPASSE", color="#fb923c", fontsize=6.5,
+                    fontweight="bold", ha="center", va="center", zorder=5
+                )
 
             # SLAM Fog of War Exploration Layer
             if self.slam_exploration_mode.get():
@@ -1468,6 +1633,10 @@ class AutonomousNavApp:
                 self.hud_cards["dist_metric"].config(text="0.00 m")
 
             self.hud_cards["wp_queue"].config(text=f"{len(self.waypoint_queue)} Queued | {len(self.completed_waypoints)} Done")
+            if self.reroute_count > 0:
+                self.hud_cards["route_status"].config(text=f"Alternative #{self.reroute_count} (Bypassed)", fg="#fbbf24")
+            else:
+                self.hud_cards["route_status"].config(text="Optimal Direct", fg="#34d399")
             self.hud_cards["robot_pose"].config(text=f"X:{rx:.2f}m Y:{ry:.2f}m θ:{math.degrees(rth):.1f}°")
 
             # Speedometer representation
