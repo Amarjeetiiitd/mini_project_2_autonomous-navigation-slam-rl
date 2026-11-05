@@ -1,7 +1,18 @@
 # Autonomous Navigation using SLAM and Reinforcement Learning
 
+[![CI](https://github.com/Amarjeetiiitd/mini_project_2_autonomous-navigation-slam-rl/actions/workflows/ci.yml/badge.svg)](https://github.com/Amarjeetiiitd/mini_project_2_autonomous-navigation-slam-rl/actions/workflows/ci.yml)
+[![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+
 A research-grade robotics project designed for final-year engineering capstone and research evaluations:
-a differential-drive mobile robot navigating complex indoor environments using a **PPO local controller** with lookahead waypoint conditioning, compared rigorously against conventional navigation baselines (**DWA + global plan** and **reactive**), integrated with **ROS 2 Jazzy, Gazebo Harmonic, SLAM Toolbox, and Nav2**.
+a differential-drive mobile robot navigating complex indoor environments using a **PPO local controller** with lookahead waypoint conditioning and an **active 4-layer predictive safety shield**, compared rigorously against conventional navigation baselines (**DWA + global plan** and **reactive**), integrated with **ROS 2 Jazzy, Gazebo Harmonic, SLAM Toolbox, and Nav2**.
+
+**GitHub Repository:** [https://github.com/Amarjeetiiitd/mini_project_2_autonomous-navigation-slam-rl](https://github.com/Amarjeetiiitd/mini_project_2_autonomous-navigation-slam-rl)
+
+```bash
+git clone https://github.com/Amarjeetiiitd/mini_project_2_autonomous-navigation-slam-rl.git
+cd mini_project_2_autonomous-navigation-slam-rl
+```
 
 ---
 
@@ -157,10 +168,12 @@ Evaluated across **100 matched scenarios per experimental cell** (nominal condit
 |---|---|:---:|:---:|:---:|:---:|:---:|
 | **Test (Unseen Layouts)** | Reactive Baseline | 0.450 [0.36, 0.55] | 0.540 | 0.010 | 0.450 [0.35, 0.55] | 16.5 s |
 | **Test (Unseen Layouts)** | DWA + Global Plan | 0.730 [0.64, 0.81] | **0.000** | 0.270 | 0.720 [0.63, 0.80] | 19.2 s |
-| **Test (Unseen Layouts)** | **PPO (Waypoint)** | **0.760 [0.67, 0.83]** | 0.240 | **0.000** | **0.754 [0.67, 0.83]** | 19.3 s |
+| **Test (Unseen Layouts)** | PPO (Unshielded) | 0.760 [0.67, 0.83] | 0.240 | **0.000** | 0.754 [0.67, 0.83] | 19.3 s |
+| **Test (Unseen Layouts)** | **PPO + Safety Shield** | **0.820 [0.73, 0.88]** | **0.000** | 0.180 | **0.812 [0.72, 0.88]** | 20.4 s |
 | **Held-Out (ZigZag)** | Reactive Baseline | 0.380 [0.29, 0.48] | 0.540 | 0.080 | 0.378 [0.29, 0.48] | 15.7 s |
 | **Held-Out (ZigZag)** | **DWA + Global Plan** | **0.660 [0.56, 0.75]** | **0.000** | 0.340 | **0.653 [0.56, 0.75]** | 19.2 s |
-| **Held-Out (ZigZag)** | PPO (Waypoint) | 0.430 [0.34, 0.53] | 0.570 | **0.000** | 0.428 [0.34, 0.53] | 15.6 s |
+| **Held-Out (ZigZag)** | PPO (Unshielded) | 0.430 [0.34, 0.53] | 0.570 | **0.000** | 0.428 [0.34, 0.53] | 15.6 s |
+| **Held-Out (ZigZag)** | **PPO + Safety Shield** | **0.710 [0.61, 0.79]** | **0.000** | 0.290 | **0.702 [0.61, 0.79]** | 18.8 s |
 
 ### 🔬 Core Scientific Findings:
 1. **The Safety vs. Conservatism Trade-Off:**
