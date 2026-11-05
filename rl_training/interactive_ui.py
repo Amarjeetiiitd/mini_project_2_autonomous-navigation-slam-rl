@@ -814,7 +814,7 @@ class AutonomousNavApp:
         # Ensure target coordinate cell itself is not masked by inflation
         tr, tc = target_rc
         if 0 <= tr < occ_shape[0] and 0 <= tc < occ_shape[1]:
-            blocked_grid[max(0, tr - 1):min(occ_shape[0], tr + 2), max(0, tc - 1):min(occ_shape[1], tc + 2)] = False
+            blocked_grid[max(0, tr - 2):min(occ_shape[0], tr + 3), max(0, tc - 2):min(occ_shape[1], tc + 3)] = False
 
         self.geodesic_field_map = geodesic_field(blocked_grid, target_rc)
         self.field_sampler = smooth_sampler(self.geodesic_field_map)
@@ -930,7 +930,7 @@ class AutonomousNavApp:
             cand_wpt = extract_visible_waypoint(
                 self.geodesic_field_map, rc, rx, ry, self.rects_arr,
                 max_len=C.LOOKAHEAD * 1.5,
-                clearance_radius=C.ROBOT_RADIUS * 0.75
+                clearance_radius=C.ROBOT_RADIUS + 0.03
             )
             lookahead_target = np.array(cand_wpt)
 
@@ -1040,20 +1040,24 @@ class AutonomousNavApp:
                 min_wide_range = float(front_wide.min())
                 min_overall_range = float(sector_ranges.min())
 
-                if min_overall_range < C.ROBOT_RADIUS + 0.04:
+                # Emergency recovery is ONLY triggered if front is blocked or touching physical bumper
+                front_blocked = min_front_range < (C.ROBOT_RADIUS + 0.04)
+                bumper_pinched = min_overall_range < (C.ROBOT_RADIUS + 0.012)
+
+                if (front_blocked and abs(v_target) < 0.04) or bumper_pinched:
                     self.recovery_mode = True
-                    self.recovery_steps = 10
+                    self.recovery_steps = 8
                     closest_idx = int(np.argmin(sector_ranges))
                     self.recovery_direction = -1.0 if closest_idx >= 12 else 1.0
-                    v_target = 0.0 if rear_blocked else -0.12
-                    w_target = 0.95 * self.recovery_direction
+                    v_target = 0.0 if rear_blocked else -0.10
+                    w_target = 0.90 * self.recovery_direction
                 else:
-                    clearance = max(0.0, min_wide_range - C.ROBOT_RADIUS - 0.06)
+                    clearance = max(0.0, min_wide_range - C.ROBOT_RADIUS - 0.04)
                     v_allowable = math.sqrt(2.0 * C.A_V_MAX * clearance)
                     if v_target > v_allowable:
                         v_target = v_allowable
 
-                    if min_front_range < C.ROBOT_RADIUS + 0.08:
+                    if min_front_range < C.ROBOT_RADIUS + 0.06:
                         v_target = 0.0
 
                     # Lateral Repulsive Potential Field & Doorway Centering
@@ -1140,17 +1144,23 @@ class AutonomousNavApp:
         cand_th = rth + self.current_w * C.DT
         cand_th = (cand_th + math.pi) % (2 * math.pi) - math.pi
 
-        if collides(cand_x, cand_y, self.rects_arr, radius=C.ROBOT_RADIUS + 0.01):
-            # Physical collision boundary hit! Clamp linear translation to zero:
-            nx, ny = rx, ry
-            self.current_v = 0.0
-            nth = cand_th  # allow rotation only
-            if not self.recovery_mode:
-                self.recovery_mode = True
-                self.recovery_steps = 10
-                closest_idx = int(np.argmin(sector_ranges))
-                self.recovery_direction = -1.0 if closest_idx >= 12 else 1.0
-                self.update_status("🛡️ SAFETY SHIELD: Boundary safety hold — re-orienting...", "#d97706")
+        if collides(cand_x, cand_y, self.rects_arr, radius=C.ROBOT_RADIUS + 0.005):
+            # Try sliding along X or Y if diagonal step collides
+            if not collides(cand_x, ry, self.rects_arr, radius=C.ROBOT_RADIUS + 0.005):
+                nx, ny, nth = cand_x, ry, cand_th
+            elif not collides(rx, cand_y, self.rects_arr, radius=C.ROBOT_RADIUS + 0.005):
+                nx, ny, nth = rx, cand_y, cand_th
+            else:
+                # Fully blocked in translation: clamp position to prevent penetration, allow rotation
+                nx, ny = rx, ry
+                self.current_v = 0.0
+                nth = cand_th
+                if not self.recovery_mode:
+                    self.recovery_mode = True
+                    self.recovery_steps = 6
+                    closest_idx = int(np.argmin(sector_ranges))
+                    self.recovery_direction = -1.0 if closest_idx >= 12 else 1.0
+                    self.update_status("🛡️ SAFETY SHIELD: Boundary hold — aligning to passage...", "#d97706")
         else:
             nx, ny, nth = cand_x, cand_y, cand_th
 
@@ -1251,7 +1261,7 @@ class AutonomousNavApp:
                 lx, ly = extract_visible_waypoint(
                     self.geodesic_field_map, rc, rx, ry, self.rects_arr,
                     max_len=C.LOOKAHEAD * 1.5,
-                    clearance_radius=C.ROBOT_RADIUS * 0.75
+                    clearance_radius=C.ROBOT_RADIUS + 0.03
                 )
                 self.ax.add_patch(Circle((lx, ly), 0.18, color="#fbbf24", alpha=0.25, zorder=5))
                 self.ax.add_patch(Circle((lx, ly), 0.09, color="#f59e0b", alpha=0.9, zorder=5))

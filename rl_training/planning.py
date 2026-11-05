@@ -24,7 +24,19 @@ def geodesic_field(blocked: np.ndarray, goal_rc: tuple[int, int],
     dist = [[math.inf] * nx for _ in range(ny)]
     gr, gc = int(goal_rc[0]), int(goal_rc[1])
     if blk[gr][gc]:
-        return np.full((ny, nx), np.inf)
+        # Target coordinate is inside inflation margin; find closest valid free cell
+        best_seed, best_d = None, 1e9
+        for dr in range(-6, 7):
+            for dc in range(-6, 7):
+                rr, cc = gr + dr, gc + dc
+                if 0 <= rr < ny and 0 <= cc < nx and not blk[rr][cc]:
+                    d = dr * dr + dc * dc
+                    if d < best_d:
+                        best_seed, best_d = (rr, cc), d
+        if best_seed is not None:
+            gr, gc = best_seed
+        else:
+            return np.full((ny, nx), np.inf)
     dist[gr][gc] = 0.0
     heap = [(0.0, gr, gc)]
     while heap:
@@ -106,7 +118,7 @@ def smooth_sampler(field: np.ndarray):
 
 
 def has_line_of_sight(p1: tuple[float, float], p2: tuple[float, float],
-                      rects: np.ndarray, radius: float = C.ROBOT_RADIUS * 0.75,
+                      rects: np.ndarray, radius: float = C.ROBOT_RADIUS + 0.03,
                       step: float = 0.05) -> bool:
     """True if the straight line segment between p1 and p2 has at least `radius` clearance."""
     if len(rects) == 0:
@@ -128,7 +140,7 @@ def has_line_of_sight(p1: tuple[float, float], p2: tuple[float, float],
 def extract_visible_waypoint(field: np.ndarray, rc: tuple[int, int],
                              rx: float, ry: float, rects: np.ndarray,
                              max_len: float = C.LOOKAHEAD * 1.5,
-                             clearance_radius: float = C.ROBOT_RADIUS * 0.75) -> tuple[float, float]:
+                             clearance_radius: float = C.ROBOT_RADIUS + 0.03) -> tuple[float, float]:
     """Extract path cells from geodesic field, returning the furthest waypoint with unobstructed line of sight."""
     path_cells = extract_path(field, rc, max_len=max_len)
     if not path_cells:
