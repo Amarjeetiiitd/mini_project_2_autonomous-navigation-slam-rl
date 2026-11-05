@@ -1,0 +1,38 @@
+# =============================================================================
+# Autonomous Navigation (SLAM & RL) - .gitattributes
+# Ensure correct line endings across Windows and Linux (WSL2)
+# =============================================================================
+
+# Set default behavior to automatically normalize line endings
+* text=auto
+
+# Enforce LF (Unix line endings) for Shell and Linux Scripts
+*.sh text eol=lf
+Makefile text eol=lf
+
+# PowerShell and Windows Batch scripts can use CRLF or LF
+*.ps1 text eol=crlf
+*.bat text eol=crlf
+
+# Python and Documentation files
+*.py text eol=lf
+*.md text eol=lf
+*.json text eol=lf
+*.csv text eol=lf
+*.tex text eol=lf
+*.toml text eol=lf
+*.txt text eol=lf
+*.yml text eol=lf
+*.yaml text eol=lf
+
+# Binary files (Never convert line endings)
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.zip binary
+*.tar.gz binary
+*.npz binary
+*.pt binary
+*.pth binary
+*.onnx binary

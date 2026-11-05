@@ -1,0 +1,16 @@
+split,controller,family,n,success_rate,spl
+heldout,dwa_global,zigzag,100,0.66,0.6527472224066717
+heldout,ppo_waypoint,zigzag,100,0.43,0.42813781370876425
+heldout,reactive,zigzag,100,0.38,0.3778528008080518
+test,dwa_global,clutter,25,0.88,0.8727023361308862
+test,dwa_global,corridor,25,0.8,0.7865597694803813
+test,dwa_global,open,25,0.92,0.9014843921536866
+test,dwa_global,rooms,25,0.32,0.31974719449325223
+test,ppo_waypoint,clutter,25,0.88,0.8656779652473041
+test,ppo_waypoint,corridor,25,0.84,0.8348758297404615
+test,ppo_waypoint,open,25,0.88,0.874969773179703
+test,ppo_waypoint,rooms,25,0.44,0.439030687169359
+test,reactive,clutter,25,0.36,0.36
+test,reactive,corridor,25,0.64,0.64
+test,reactive,open,25,0.64,0.64
+test,reactive,rooms,25,0.16,0.16

@@ -1,0 +1,6 @@
+[
+  {"name": "EDIT_ME_s1", "start": [-2.0, -0.5, 0.0], "goal": [0.5, 1.0, 0.0],
+   "_comment": "PLACEHOLDER coordinates in the map frame. Open RViz, click free-space points with 'Publish Point', and replace these with verified free cells before running experiments."},
+  {"name": "EDIT_ME_s2", "start": [0.5, 1.0, 0.0], "goal": [1.5, -1.0, 0.0]},
+  {"name": "EDIT_ME_s3", "start": [1.5, -1.0, 0.0], "goal": [-2.0, -0.5, 0.0]}
+]

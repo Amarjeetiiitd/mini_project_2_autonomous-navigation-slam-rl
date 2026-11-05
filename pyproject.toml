@@ -1,0 +1,16 @@
+[build-system]
+requires = ["setuptools>=64"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "autonomous-navigation-slam-rl"
+version = "1.0.0"
+description = "SLAM + PPO local navigation research project (standalone benchmark + ROS 2 Jazzy integration)"
+requires-python = ">=3.10"
+dependencies = ["numpy", "scipy", "pandas", "matplotlib", "gymnasium", "stable-baselines3", "torch"]
+
+[tool.setuptools]
+packages = ["rl_training"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

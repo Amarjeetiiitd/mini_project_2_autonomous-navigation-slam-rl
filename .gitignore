@@ -1,0 +1,124 @@
+# =============================================================================
+# Autonomous Navigation (SLAM & RL) - .gitignore
+# Cross-platform: Windows, WSL2, Ubuntu, macOS
+# =============================================================================
+
+# -----------------------------------------------------------------------------
+# Python Virtual Environments
+# -----------------------------------------------------------------------------
+.venv/
+venv/
+env/
+ENV/
+.env/
+env.bak/
+venv.bak/
+
+# -----------------------------------------------------------------------------
+# Python Bytecode & Compiled Files
+# -----------------------------------------------------------------------------
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+*.pyd
+
+# -----------------------------------------------------------------------------
+# Distribution, Build & Packaging
+# -----------------------------------------------------------------------------
+*.egg-info/
+.installed.cfg
+*.egg
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+share/python-wheels/
+
+# -----------------------------------------------------------------------------
+# Testing, Coverage & Linters
+# -----------------------------------------------------------------------------
+.pytest_cache/
+.coverage
+.coverage.*
+nosetests.xml
+coverage.xml
+*.cover
+*.py,cover
+htmlcov/
+.tox/
+.nox/
+.hypothesis/
+.ruff_cache/
+.mypy_cache/
+
+# -----------------------------------------------------------------------------
+# Jupyter Notebooks
+# -----------------------------------------------------------------------------
+.ipynb_checkpoints/
+
+# -----------------------------------------------------------------------------
+# Logs & Transient Files
+# -----------------------------------------------------------------------------
+*.log
+logs/*.log
+models/checkpoints/
+scratch/
+results/figures/*.tmp
+*.tmp
+*.temp
+*.bak
+*.swp
+*~
+
+# Tensorboard
+events.out.tfevents.*
+
+# -----------------------------------------------------------------------------
+# ROS 2 & Colcon Build Artifacts (Linux / WSL2)
+# -----------------------------------------------------------------------------
+install/
+log/
+COLCON_IGNORE
+
+# -----------------------------------------------------------------------------
+# Operating System Files
+# -----------------------------------------------------------------------------
+# Windows
+Thumbs.db
+Thumbs.db:encryptable
+ehthumbs.db
+ehthumbs_vista.db
+[Dd]esktop.ini
+$RECYCLE.BIN/
+
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+._*
+
+# Linux
+.directory
+
+# -----------------------------------------------------------------------------
+# IDE & Code Editors
+# -----------------------------------------------------------------------------
+.vscode/*
+!.vscode/settings.json
+!.vscode/tasks.json
+!.vscode/launch.json
+.idea/
+*.sublime-project
+*.sublime-workspace
+.project
+.pydevproject
+.settings/
