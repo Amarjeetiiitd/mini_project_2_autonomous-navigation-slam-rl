@@ -993,20 +993,46 @@ class AutonomousNavApp:
 
         # 7. Intelligent Safety Shield & Autonomous Recovery Layer
         if self.safety_shield_enabled.get():
+            # Check rear clearance before allowing negative velocity:
+            # Sector 0 is straight behind (-pi), sectors 22, 23, 1, 2 flank it
+            rear_sectors = sector_ranges[[22, 23, 0, 1, 2]]
+            min_rear_range = float(rear_sectors.min())
+            rear_blocked = min_rear_range < (C.ROBOT_RADIUS + 0.08)
+
             if self.recovery_mode:
                 self.recovery_steps -= 1
-                v_target = -0.12
-                w_target = 0.90 * self.recovery_direction
-                self.safety_status_lbl.config(
-                    text=f"🔄 AUTO-RECOVERY: Unfreezing & Reversing ({self.recovery_steps})",
-                    fg="#fbbf24",
-                    bg="#78350f",
-                )
+                if rear_blocked:
+                    # Rear is blocked! Pivot in place instead of reversing into wall behind
+                    v_target = 0.0
+                    w_target = 1.0 * self.recovery_direction
+                    self.safety_status_lbl.config(
+                        text=f"🔄 AUTO-RECOVERY: Pivoting in Place ({self.recovery_steps})",
+                        fg="#fbbf24",
+                        bg="#78350f",
+                    )
+                else:
+                    v_target = -0.12
+                    w_target = 0.85 * self.recovery_direction
+                    self.safety_status_lbl.config(
+                        text=f"🔄 AUTO-RECOVERY: Backing Away ({self.recovery_steps})",
+                        fg="#fbbf24",
+                        bg="#78350f",
+                    )
+
+                # Exit gate: verify front is clear before exiting recovery
+                front_narrow = sector_ranges[10:15]
+                min_front_range = float(front_narrow.min())
                 if self.recovery_steps <= 0:
-                    self.recovery_mode = False
-                    self.recovery_direction = -self.recovery_direction
-                    if self.active_target is not None:
-                        self.plan_path_to_target(self.active_target[0], self.active_target[1])
+                    if min_front_range < C.ROBOT_RADIUS + 0.12:
+                        # Front still faces obstacle; spend 2 more steps pivoting to open space
+                        self.recovery_steps = 2
+                        v_target = 0.0
+                        w_target = 1.0 * self.recovery_direction
+                    else:
+                        self.recovery_mode = False
+                        self.recovery_direction = -self.recovery_direction
+                        if self.active_target is not None:
+                            self.plan_path_to_target(self.active_target[0], self.active_target[1])
             else:
                 front_narrow = sector_ranges[10:15]  # ±30° narrow forward cone
                 front_wide = sector_ranges[8:17]     # ±60° wide forward arc
@@ -1019,8 +1045,8 @@ class AutonomousNavApp:
                     self.recovery_steps = 10
                     closest_idx = int(np.argmin(sector_ranges))
                     self.recovery_direction = -1.0 if closest_idx >= 12 else 1.0
-                    v_target = -0.12
-                    w_target = 0.90 * self.recovery_direction
+                    v_target = 0.0 if rear_blocked else -0.12
+                    w_target = 0.95 * self.recovery_direction
                 else:
                     clearance = max(0.0, min_wide_range - C.ROBOT_RADIUS - 0.06)
                     v_allowable = math.sqrt(2.0 * C.A_V_MAX * clearance)
@@ -1055,14 +1081,17 @@ class AutonomousNavApp:
                         if abs(w_target) < 0.4:
                             w_target = 0.85 * preferred_dir
 
-                    for step_i in [1, 2, 3]:
-                        pred_x = rx + step_i * max(v_target, 0.05) * math.cos(rth) * C.DT
-                        pred_y = ry + step_i * max(v_target, 0.05) * math.sin(rth) * C.DT
-                        if collides(pred_x, pred_y, self.rects_arr, radius=C.ROBOT_RADIUS + 0.02):
-                            v_target = 0.0
-                            preferred_dir = 1.0 if left_dist >= right_dist else -1.0
-                            w_target = 0.90 * preferred_dir
-                            break
+                    # Trajectory Collision Forecast (Checks both forward & reverse)
+                    test_v = v_target if abs(v_target) > 0.03 else 0.0
+                    if test_v != 0.0:
+                        for step_i in [1, 2, 3, 4]:
+                            pred_x = rx + step_i * test_v * math.cos(rth) * C.DT
+                            pred_y = ry + step_i * test_v * math.sin(rth) * C.DT
+                            if collides(pred_x, pred_y, self.rects_arr, radius=C.ROBOT_RADIUS + 0.03):
+                                v_target = 0.0
+                                preferred_dir = 1.0 if left_dist >= right_dist else -1.0
+                                w_target = 0.95 * preferred_dir
+                                break
 
                     if v_target == 0.0:
                         self.safety_status_lbl.config(
@@ -1105,33 +1134,34 @@ class AutonomousNavApp:
         self.current_v = float(np.clip(v_target, max(min_v, self.current_v - dv), min(C.V_MAX, self.current_v + dv)))
         self.current_w = float(np.clip(w_target, self.current_w - dw, self.current_w + dw))
 
-        # 8. Integrate Unicycle Kinematics
-        nx = rx + self.current_v * math.cos(rth) * C.DT
-        ny = ry + self.current_v * math.sin(rth) * C.DT
-        nth = rth + self.current_w * C.DT
-        nth = (nth + math.pi) % (2 * math.pi) - math.pi
+        # 8. Integrate Unicycle Kinematics with Absolute Physical Barrier Guard
+        cand_x = rx + self.current_v * math.cos(rth) * C.DT
+        cand_y = ry + self.current_v * math.sin(rth) * C.DT
+        cand_th = rth + self.current_w * C.DT
+        cand_th = (cand_th + math.pi) % (2 * math.pi) - math.pi
 
-        # 9. Collision Check with Automatic Recovery
-        if collides(nx, ny, self.rects_arr, radius=C.ROBOT_RADIUS):
-            if self.safety_shield_enabled.get():
+        if collides(cand_x, cand_y, self.rects_arr, radius=C.ROBOT_RADIUS + 0.01):
+            # Physical collision boundary hit! Clamp linear translation to zero:
+            nx, ny = rx, ry
+            self.current_v = 0.0
+            nth = cand_th  # allow rotation only
+            if not self.recovery_mode:
                 self.recovery_mode = True
-                self.recovery_steps = 8
+                self.recovery_steps = 10
                 closest_idx = int(np.argmin(sector_ranges))
                 self.recovery_direction = -1.0 if closest_idx >= 12 else 1.0
-                self.current_v = -0.10
-                self.current_w = 0.8 * self.recovery_direction
-                nx = rx - 0.02 * math.cos(rth)
-                ny = ry - 0.02 * math.sin(rth)
-                if collides(nx, ny, self.rects_arr, radius=C.ROBOT_RADIUS):
-                    nx, ny = rx, ry
-                self.update_status("🛡️ SAFETY SHIELD: Imminent collision prevented! Auto-reversing...", "#d97706")
-            else:
-                self.current_v = 0.0
-                self.current_w = 0.0
-                self.is_running = False
-                self.btn_run.config(text="▶  START MISSION", bg="#059669")
-                self.update_status("⚠️ COLLISION DETECTED! Robot reached obstacle boundary.", "#ef4444")
-                return
+                self.update_status("🛡️ SAFETY SHIELD: Boundary safety hold — re-orienting...", "#d97706")
+        else:
+            nx, ny, nth = cand_x, cand_y, cand_th
+
+        # 9. Physical Collision Check (when shield is disabled)
+        if not self.safety_shield_enabled.get() and collides(nx, ny, self.rects_arr, radius=C.ROBOT_RADIUS):
+            self.current_v = 0.0
+            self.current_w = 0.0
+            self.is_running = False
+            self.btn_run.config(text="▶  START MISSION", bg="#059669")
+            self.update_status("⚠️ COLLISION DETECTED! Robot reached obstacle boundary.", "#ef4444")
+            return
 
         # Advance state
         step_dist = math.hypot(nx - rx, ny - ry)

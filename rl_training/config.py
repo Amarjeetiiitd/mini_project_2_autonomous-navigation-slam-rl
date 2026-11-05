@@ -39,7 +39,7 @@ DT = 0.1                            # s per control step (10 Hz)
 # --------------------------------------------------------------- episodes
 MAX_STEPS = 700                     # 70 s
 GRID_RES = 0.1                      # m, planning / occupancy resolution
-PLAN_INFLATION = 0.8 * ROBOT_RADIUS  # planner inflation radius
+PLAN_INFLATION = ROBOT_RADIUS + 0.08  # planner inflation radius (0.30 m, guarantees >= 8 cm clearance)
 START_CLEARANCE = ROBOT_RADIUS + 0.15  # clearance for sampled starts/goals
 
 # ------------------------------------------------------ layout seed splits
