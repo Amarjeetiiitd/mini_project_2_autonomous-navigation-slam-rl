@@ -226,6 +226,26 @@ python run_demo.py --controller ppo --family rooms
 > 3. The front obstacle safety watchdog detects clearance $< 0.28\,\text{m}$ and immediately commands $v = 0.0\,\text{m/s}$, inhibiting forward motion while allowing yaw rotation ($\omega$).
 > 4. The geodesic distance field re-routes around the newly inserted obstacle, the lookahead waypoint shifts to an open lateral corridor, and the PPO controller rotates the robot to navigate around the obstacle safely.
 
+#### Q19: What happens if the robot enters a narrow passage that is impassable, or gets wedged between walls? How does it find an alternative path?
+> **Answer:**
+> In conventional planners, if a robot gets wedged in a tight corridor, auto-recovery pivots on the spot and exits—only to have the static global planner command the exact same blocked waypoint, creating an infinite deadlock loop.
+> Our system implements an **Autonomous Dynamic Impasse & Alternative Path Discovery Engine**:
+> 1. If the robot detects stagnation ($\Delta x < 4\,\text{cm}$ over 15 frames) or experiences $\ge 3$ consecutive boundary holds in a tight corridor, it classifies the passage as an **impasse**.
+> 2. It dynamically places an orange virtual obstacle disk ($r = 0.45\,\text{m}$) over the pinch point on the costmap and triggers instant Dijkstra wave-front replanning.
+> 3. Because the pinch point is sealed, Dijkstra's wave-front immediately discovers the alternative route through open adjacent corridors (e.g., routing south through a wide room instead of forcing through a tight slit).
+> 4. On the GUI, an orange translucent `⚠️ IMPASSE` marker appears, and the telemetry HUD updates to `Route Planning: Alternative #1 (Bypassed)`.
+> 5. The robot turns toward the new lookahead waypoint in open space and drives forward out of the pinch, reaching the destination collision-free.
+
+#### Q20: What is the "Sticky Wall" problem in robotics simulation, and how does your disengagement rule resolve it?
+> **Answer:**
+> When a robot touches or comes within millimeters of an obstacle boundary, standard collision detection functions evaluate candidate positions:
+> $$\text{collides}(\mathbf{x}_{cand}, \text{radius} = r_{robot} + \epsilon) \to \text{True}$$
+> Under naive physics engines, this check returns True for **all** candidate motions—including motions that are trying to back away or steer out into open space! This creates a "sticky wall" trap where the robot is physically unable to escape.
+> We designed a **Clearance-Directed Disengagement Invariance**:
+> - We calculate the true distance to the nearest obstacle: $d_{curr} = \text{rect\_clearance}(\mathbf{x}_{curr})$ and $d_{cand} = \text{rect\_clearance}(\mathbf{x}_{cand})$.
+> - If $d_{cand} > d_{curr} + 10^{-5}\,\text{m}$, the proposed movement is **increasing clearance away from the obstacle**.
+> - Even if the candidate position is within the collision threshold, the motion is explicitly permitted! This allows the robot to seamlessly disengage and drive away from walls and corners without ever getting stuck.
+
 ---
 
 ## PART 4: VIVA QUICK-REFERENCE CHEAT SHEET
