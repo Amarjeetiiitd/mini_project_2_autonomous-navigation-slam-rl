@@ -68,14 +68,35 @@ def build_observation(sector_ranges, goal_dist: float, goal_angle: float,
 
 
 def action_to_cmd(action) -> tuple[float, float]:
-    """Policy action in [-1, 1]^2 -> (v [m/s] in [0, V_MAX], w [rad/s])."""
-    a = np.clip(np.asarray(action, dtype=np.float64), -1.0, 1.0)
-    return float((a[0] + 1.0) / 2.0 * C.V_MAX), float(a[1] * C.W_MAX)
+    """Policy action -> (v [m/s], w [rad/s]).
+    Standard policy action a[0] in [-1, 1] maps linearly to v in [0, V_MAX].
+    Extended recovery actions a[0] in [-2, -1) map to reverse v in [-0.15, 0.0] m/s.
+    """
+    a = np.asarray(action, dtype=np.float64)
+    a0 = float(a[0])
+    a1 = float(np.clip(a[1], -1.0, 1.0))
+    if a0 >= -1.0:
+        a0 = min(a0, 1.0)
+        v = (a0 + 1.0) / 2.0 * C.V_MAX
+    else:
+        # Extended reverse range: a0 in [-2, -1] -> v in [-0.15, 0]
+        a0 = max(a0, -2.0)
+        v = (a0 + 1.0) * 0.15
+    return float(v), float(a1 * C.W_MAX)
 
 
 def cmd_to_action(v: float, w: float) -> np.ndarray:
-    return np.array([np.clip(2.0 * v / C.V_MAX - 1.0, -1, 1), np.clip(w / C.W_MAX, -1, 1)],
-                    dtype=np.float32)
+    """Velocity commands (v, w) -> policy/environment action.
+    v >= 0 maps to a0 in [-1, 1].
+    v < 0 maps to extended action a0 in [-2, -1).
+    """
+    if v >= 0.0:
+        a0 = np.clip(2.0 * v / C.V_MAX - 1.0, -1.0, 1.0)
+    else:
+        # Reverse velocity in [-0.15, 0) maps to [-2, -1)
+        a0 = np.clip(-1.0 + v / 0.15, -2.0, -1.0)
+    a1 = np.clip(w / C.W_MAX, -1.0, 1.0)
+    return np.array([a0, a1], dtype=np.float32)
 
 
 def goal_in_robot_frame(pose_xy_yaw, target_xy) -> tuple[float, float]:

@@ -27,7 +27,8 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt  # noqa: E402
 
 from . import config as C  # noqa: E402
-from .baselines import DWAController, ReactiveController, evaluate_controller  # noqa: E402
+from .baselines import (DWAController, GovernorPPOController, MASRLController,
+                        ReactiveController, evaluate_controller)  # noqa: E402
 from .evaluate import load_policy  # noqa: E402
 from .metrics import summarize  # noqa: E402
 from .scenarios import make_scenarios  # noqa: E402
@@ -49,6 +50,8 @@ def main() -> None:
     controllers = [("reactive", ReactiveController(), {}), ("dwa_global", DWAController(), {})]
     if ppo is not None:
         controllers.append((f"ppo_{mode}", ppo, {"goal_mode": mode}))
+        controllers.append(("ppo_governor", GovernorPPOController(ppo.model), {"goal_mode": mode}))
+        controllers.append(("mas_rl", MASRLController(ppo.model), {"goal_mode": mode}))
 
     frames = []
     for split in a.splits:

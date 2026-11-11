@@ -15,7 +15,8 @@ import matplotlib.pyplot as plt  # noqa: E402
 from matplotlib.patches import Circle, Rectangle  # noqa: E402
 
 from . import config as C  # noqa: E402
-from .baselines import DWAController, ReactiveController, run_episode  # noqa: E402
+from .baselines import (DWAController, GovernorPPOController, MASRLController,
+                        ReactiveController, run_episode)  # noqa: E402
 from .evaluate import load_policy  # noqa: E402
 from .maps import get_bundle  # noqa: E402
 from .nav_env import NavEnv  # noqa: E402
@@ -39,13 +40,16 @@ def main() -> None:
     ap.add_argument("--split", default="test", choices=["test", "heldout", "val"])
     ap.add_argument("--n", type=int, default=6)
     ap.add_argument("--seed", type=int, default=0)
-    ap.add_argument("--out", default="results/figures/trajectories.png")
+    ap.add_argument("--out", default=None)
     a = ap.parse_args()
     scns = make_scenarios(a.n, a.split, a.seed)
     ctrls = [("reactive", ReactiveController(), {}), ("dwa_global", DWAController(), {})]
     if a.model:
         ppo, mode = load_policy(a.model)
         ctrls.append((f"ppo_{mode}", ppo, {"goal_mode": mode}))
+        ctrls.append(("ppo_governor", GovernorPPOController(ppo.model), {"goal_mode": mode}))
+        ctrls.append(("mas_rl", MASRLController(ppo.model), {"goal_mode": mode}))
+    out_file = a.out or f"results/figures/trajectories_{a.split}.png"
     fig, axes = plt.subplots(len(ctrls), a.n, figsize=(2.6 * a.n, 2.6 * len(ctrls)), squeeze=False)
     for r, (name, ctrl, kw) in enumerate(ctrls):
         env = NavEnv(**kw)
@@ -54,9 +58,9 @@ def main() -> None:
             tag = "OK" if res["success"] else ("COLL" if res["collision"] else "TIME")
             draw(axes[r, c], scn, res["traj"], f"{name} #{scn.sid} {tag}")
     fig.tight_layout()
-    Path(a.out).parent.mkdir(parents=True, exist_ok=True)
-    fig.savefig(a.out, dpi=130)
-    print(f"saved {a.out}")
+    Path(out_file).parent.mkdir(parents=True, exist_ok=True)
+    fig.savefig(out_file, dpi=130)
+    print(f"saved {out_file}")
 
 
 if __name__ == "__main__":

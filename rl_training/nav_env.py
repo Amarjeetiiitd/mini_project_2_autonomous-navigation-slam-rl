@@ -20,7 +20,8 @@ from . import config as C
 from .maps import collides, get_bundle, raycast
 from .obs import (action_to_cmd, build_observation, goal_in_robot_frame, ray_angles,
                   wrap_angle)
-from .planning import extract_path, geodesic_field, rc_to_xy, smooth_sampler, xy_to_rc
+from .planning import (extract_path, geodesic_field, make_clearance_penalty,
+                       rc_to_xy, smooth_sampler, xy_to_rc)
 from .scenarios import Scenario, sample_start_goal
 
 
@@ -31,7 +32,7 @@ class NavEnv(gym.Env):
                  lidar_noise_std: float = 0.0, lidar_dropout: float = 0.0,
                  loc_drift_pos: float = 0.0, loc_drift_yaw: float = 0.0,
                  min_goal_dist: float = 2.0, max_goal_dist: float = 9.0,
-                 max_steps: int = C.MAX_STEPS):
+                 max_steps: int = C.MAX_STEPS, clearance_weighted: bool = True):
         super().__init__()
         assert goal_mode in ("waypoint", "direct")
         self.layout_seeds = tuple(layout_seeds) if layout_seeds is not None else C.TRAIN_SEEDS
@@ -39,6 +40,7 @@ class NavEnv(gym.Env):
         self.noise_std, self.dropout = lidar_noise_std, lidar_dropout
         self.drift_pos, self.drift_yaw = loc_drift_pos, loc_drift_yaw
         self.dmin, self.dmax, self.max_steps = min_goal_dist, max_goal_dist, max_steps
+        self.clearance_weighted = clearance_weighted
 
         lo = np.array([0.0] * C.N_SECTORS + [0.0, -1.0, -1.0, 0.0, -1.0], dtype=np.float32)
         hi = np.ones(C.OBS_DIM, dtype=np.float32)
@@ -56,7 +58,9 @@ class NavEnv(gym.Env):
             self.bundle = get_bundle(scn.layout_seed, scn.family_override)
             sx, sy, yaw = scn.start
             self.goal = np.array(scn.goal, dtype=np.float64)
-            self.field = geodesic_field(self.bundle.plan_blocked, xy_to_rc(*self.goal, self.bundle.occ.shape))
+            pen = make_clearance_penalty(self.bundle.plan_blocked) if self.clearance_weighted else None
+            self.field = geodesic_field(self.bundle.plan_blocked, xy_to_rc(*self.goal, self.bundle.occ.shape),
+                                        clearance_cost=pen)
             self.shortest = scn.shortest_len
         else:
             for _ in range(50):
@@ -69,6 +73,10 @@ class NavEnv(gym.Env):
                 raise RuntimeError("could not sample a valid start/goal")
             (sx, sy), g, self.shortest, self.field = res
             self.goal = np.array(g, dtype=np.float64)
+            if self.clearance_weighted:
+                pen = make_clearance_penalty(self.bundle.plan_blocked)
+                self.field = geodesic_field(self.bundle.plan_blocked, xy_to_rc(*self.goal, self.bundle.occ.shape),
+                                            clearance_cost=pen)
             yaw = float(self.np_random.uniform(-math.pi, math.pi))
         self.rects = self.bundle.world.rects
         self._geo = smooth_sampler(self.field)

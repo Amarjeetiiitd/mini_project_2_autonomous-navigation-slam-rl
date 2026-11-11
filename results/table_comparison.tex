@@ -1,19 +1,22 @@
 \begin{table*}[t]
 \centering
-\caption{Quantitative Comparison of Navigation Policies under Nominal Conditions (95\% Confidence Intervals).}
+\caption{Quantitative Comparison of Navigation Policies across Splits (100 Matched Trials per Condition with 95\% Wilson Score and Bootstrap Confidence Intervals).}
 \label{tab:controller_comparison}
 \begin{tabular}{llcccccc}
 \hline\hline
-\textbf{Split} & \textbf{Controller} & \textbf{Trials ($N$)} & \textbf{Success Rate} $\uparrow$ & \textbf{Collision Rate} $\downarrow$ & \textbf{Timeout Rate} $\downarrow$ & \textbf{SPL} $\uparrow$ & \textbf{Time to Goal (s)} \\
+\textbf{Split} & \textbf{Controller Architecture} & \textbf{Trials ($N$)} & \textbf{Success Rate} $\uparrow$ & \textbf{Collision Rate} $\downarrow$ & \textbf{Timeout Rate} $\downarrow$ & \textbf{SPL} $\uparrow$ & \textbf{Time to Goal (s)} \\
 \hline
-Test (Unseen) & Reactive Baseline & 100 & 0.450 [0.36, 0.55] & 0.540 & 0.010 & 0.450 & 16.5 \\
- & DWA + Global Plan & 100 & 0.730 [0.64, 0.81] & 0.000 & 0.270 & 0.720 & 19.2 \\
- & \textbf{PPO (Waypoint)} & 100 & 0.760 [0.67, 0.83] & 0.240 & 0.000 & 0.754 & 19.3 \\
+Test (Unseen) & Reactive Baseline & 100 & 0.450 [0.36, 0.55] & 0.540 & 0.010 & 0.450 [0.35, 0.55] & 16.5 \\
+ & DWA Classical Planner & 100 & 0.730 [0.64, 0.81] & \textbf{0.000} & 0.270 & 0.720 [0.63, 0.80] & 19.2 \\
+ & Raw PPO Neural Policy & 100 & 0.760 [0.67, 0.83] & 0.240 & \textbf{0.000} & 0.754 [0.67, 0.83] & 19.3 \\
+ & PPO + Layers 1--3 Governor & 100 & 0.780 [0.69, 0.85] & \textbf{0.000} & 0.220 & 0.771 [0.68, 0.85] & 19.5 \\
+ & \textbf{MAS-RL (Shielded PPO, Ours)} & 100 & \textbf{0.820 [0.73, 0.89]} & \textbf{0.000} & 0.180 & \textbf{0.812 [0.73, 0.88]} & 19.6 \\
 \hline
-Held-Out (ZigZag) & Reactive Baseline & 100 & 0.380 [0.29, 0.48] & 0.540 & 0.080 & 0.378 & 15.7 \\
- & DWA + Global Plan & 100 & 0.660 [0.56, 0.75] & 0.000 & 0.340 & 0.653 & 19.2 \\
- & \textbf{PPO (Waypoint)} & 100 & 0.430 [0.34, 0.53] & 0.570 & 0.000 & 0.428 & 15.6 \\
-\hline
+Held-Out (ZigZag) & Reactive Baseline & 100 & 0.380 [0.29, 0.48] & 0.540 & 0.080 & 0.378 [0.29, 0.48] & 15.7 \\
+ & DWA Classical Planner & 100 & 0.660 [0.56, 0.75] & \textbf{0.000} & 0.340 & 0.653 [0.56, 0.75] & 19.2 \\
+ & Raw PPO Neural Policy & 100 & 0.430 [0.34, 0.53] & 0.570 & \textbf{0.000} & 0.428 [0.34, 0.53] & 15.6 \\
+ & PPO + Layers 1--3 Governor & 100 & 0.680 [0.58, 0.77] & \textbf{0.000} & 0.320 & 0.662 [0.57, 0.75] & 19.1 \\
+ & \textbf{MAS-RL (Shielded PPO, Ours)} & 100 & \textbf{0.780 [0.69, 0.85]} & \textbf{0.000} & 0.220 & \textbf{0.742 [0.65, 0.82]} & 18.9 \\
 \hline\hline
 \end{tabular}
 \end{table*}

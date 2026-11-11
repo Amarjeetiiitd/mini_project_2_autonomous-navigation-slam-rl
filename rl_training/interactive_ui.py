@@ -39,7 +39,8 @@ from matplotlib.patches import Circle, Rectangle, Polygon, Wedge
 from matplotlib.lines import Line2D
 
 from . import config as C
-from .baselines import DWAController, ReactiveController, PPOController, ShieldedPPOController
+from .baselines import (DWAController, GovernorPPOController, PPOController,
+                        ReactiveController, ShieldedPPOController)
 from .evaluate import load_policy
 from .maps import get_bundle, collides, rect_clearance, generate_world, make_plan_blocked
 from .nav_env import NavEnv
@@ -142,13 +143,16 @@ class AutonomousNavApp:
             try:
                 ppo_ctrl, self.ppo_mode = load_policy(str(model_path))
                 self.controllers["ppo"] = ppo_ctrl
+                self.controllers["ppo_governor"] = GovernorPPOController(ppo_ctrl.model)
                 self.controllers["ppo_shielded"] = ShieldedPPOController(ppo_ctrl.model)
             except Exception as e:
                 print(f"[WARN] Error loading PPO model: {e}")
                 self.controllers["ppo"] = None
+                self.controllers["ppo_governor"] = None
                 self.controllers["ppo_shielded"] = None
         else:
             self.controllers["ppo"] = None
+            self.controllers["ppo_governor"] = None
             self.controllers["ppo_shielded"] = None
 
         self.controllers["dwa"] = DWAController()
@@ -221,7 +225,7 @@ class AutonomousNavApp:
         self.on_mode_change()
 
     def cycle_controller(self):
-        order = ["ppo_shielded", "ppo", "dwa", "reactive"]
+        order = ["ppo_shielded", "ppo_governor", "ppo", "dwa", "reactive"]
         curr_idx = order.index(self.active_controller_name) if self.active_controller_name in order else 0
         next_ctrl = order[(curr_idx + 1) % len(order)]
         self.ctrl_var.set(next_ctrl)
@@ -352,9 +356,10 @@ class AutonomousNavApp:
 
         self.ctrl_var = tk.StringVar(value="ppo_shielded")
         ctrls = [
-            ("🛡️  PPO + Dynamic Safety Shield", "ppo_shielded", "#34d399"),
+            ("🛡️  PPO + Dynamic Shield (MAS-RL)", "ppo_shielded", "#34d399"),
+            ("⚙️  PPO + Continuous CBF Governor", "ppo_governor", "#a7f3d0"),
             ("🧠  PPO Raw Neural Network", "ppo", "#38bdf8"),
-            ("⚙️  DWA Local Planner", "dwa", "#94a3b8"),
+            ("🧭  DWA Local Planner", "dwa", "#94a3b8"),
             ("⚡  Reactive Potential Field", "reactive", "#f87171"),
         ]
         for text, val, col in ctrls:
@@ -1054,6 +1059,9 @@ class AutonomousNavApp:
 
         if ctrl_name == "ppo_shielded" and self.controllers.get("ppo_shielded") is not None:
             action = self.controllers["ppo_shielded"].act(self.env, obs)
+            v_target, w_target = action_to_cmd(action)
+        elif ctrl_name == "ppo_governor" and self.controllers.get("ppo_governor") is not None:
+            action = self.controllers["ppo_governor"].act(self.env, obs)
             v_target, w_target = action_to_cmd(action)
         elif ctrl_name == "ppo" and self.controllers.get("ppo") is not None:
             action = self.controllers["ppo"].act(self.env, obs)
