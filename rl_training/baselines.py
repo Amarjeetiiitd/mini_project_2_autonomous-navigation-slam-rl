@@ -134,15 +134,26 @@ class GovernorPPOController(Controller):
         if min_front < C.ROBOT_RADIUS + 0.08:
             v = 0.0
 
-        # Layer 3: Lateral Repulsive Potential Field Steering
+        # Layer 3: Lateral Repulsive Potential Field Steering & Doorway Centering
         left_dist = float(sector_ranges[13:18].min())
         right_dist = float(sector_ranges[7:12].min())
+        left_flank = float(sector_ranges[14:18].min())
+        right_flank = float(sector_ranges[6:10].min())
         repulse_w = 0.0
-        if left_dist < 0.45:
-            repulse_w -= 0.7 * (1.0 - left_dist / 0.45)
-        if right_dist < 0.45:
-            repulse_w += 0.7 * (1.0 - right_dist / 0.45)
+
+        if left_dist < 0.65 and right_dist < 0.65:
+            # Doorway/corridor centering bias
+            repulse_w = 0.85 * (left_dist - right_dist)
+        else:
+            if left_dist < 0.45:
+                repulse_w -= 0.7 * (1.0 - left_dist / 0.45)
+            if right_dist < 0.45:
+                repulse_w += 0.7 * (1.0 - right_dist / 0.45)
         w = float(np.clip(w + repulse_w, -C.W_MAX, C.W_MAX))
+
+        # Flank pinch protection: slow down if side clearance is tight
+        if min(left_flank, right_flank) < (C.ROBOT_RADIUS + 0.035):
+            v = min(v, 0.08)
 
         # Anti-Deadlock Symmetry Breaking
         if v == 0.0:
@@ -228,13 +239,24 @@ class MASRLController(Controller):
         if min_front < C.ROBOT_RADIUS + 0.08:
             v = 0.0
 
-        # 5. Lateral Repulsive Potential Field Steering
+        # 5. Lateral Repulsive Potential Field Steering & Doorway Centering
+        left_flank = float(sector_ranges[14:18].min())
+        right_flank = float(sector_ranges[6:10].min())
         repulse_w = 0.0
-        if left_dist < 0.45:
-            repulse_w -= 0.7 * (1.0 - left_dist / 0.45)
-        if right_dist < 0.45:
-            repulse_w += 0.7 * (1.0 - right_dist / 0.45)
+
+        if left_dist < 0.65 and right_dist < 0.65:
+            # Doorway/corridor centering bias
+            repulse_w = 0.85 * (left_dist - right_dist)
+        else:
+            if left_dist < 0.45:
+                repulse_w -= 0.7 * (1.0 - left_dist / 0.45)
+            if right_dist < 0.45:
+                repulse_w += 0.7 * (1.0 - right_dist / 0.45)
         w = float(np.clip(w + repulse_w, -C.W_MAX, C.W_MAX))
+
+        # Flank pinch protection: slow down if side clearance is tight
+        if min(left_flank, right_flank) < (C.ROBOT_RADIUS + 0.035):
+            v = min(v, 0.08)
 
         # 6. Anti-Deadlock Symmetry Breaking
         if v == 0.0:

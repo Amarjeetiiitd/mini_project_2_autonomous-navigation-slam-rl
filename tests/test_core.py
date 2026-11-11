@@ -177,3 +177,17 @@ def test_line_of_sight_and_visible_waypoint():
     assert blocked.shape[0] > 0 and blocked.shape[1] > 0
     assert blocked.any()
 
+
+def test_string_pulling_shortcut_path():
+    from rl_training.planning import shortcut_path
+    
+    # In an open room without obstacles, a zigzag grid path [(0,0), (0.1, 0.1), (0.2, 0.2), ..., (2.0, 2.0)]
+    # should be pruned by string pulling down to just [(0,0), (2.0, 2.0)]
+    rects = np.zeros((0, 4), dtype=np.float64)
+    grid_zigzag = [(i * 0.1, i * 0.1) for i in range(21)]
+    
+    pruned = shortcut_path(grid_zigzag, rects)
+    assert len(pruned) == 2
+    assert pruned[0] == (0.0, 0.0)
+    assert pruned[-1] == (2.0, 2.0)
+

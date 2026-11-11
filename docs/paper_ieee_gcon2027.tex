@@ -64,19 +64,19 @@ To eliminate doorway edge-grazing, the global 8-connected Dijkstra distance fiel
 \begin{equation}
 \text{Cost}_{\text{clear}}(r, c) = \left(\frac{d_{\text{margin}} - D_{\text{clear}}(r, c)}{d_{\text{margin}}}\right)^2 \cdot K_{\text{penalty}}
 \end{equation}
-where $d_{\text{margin}} = 0.45\,\text{m}$ and $K_{\text{penalty}} = 2.5$. Traversal edge costs scale by $(1.0 + \text{Cost}_{\text{clear}})$, naturally centering global lookahead waypoints ($L = 1.5\,\text{m}$) along the medial axis of narrow openings.
+where $d_{\text{margin}} = 0.25\,\text{m}$ and $K_{\text{penalty}} = 0.35$. Traversal edge costs scale by $(1.0 + \text{Cost}_{\text{clear}})$, acting as a gentle Voronoi tie-breaker that centers waypoints along doorways without distorting Euclidean path optimality. Raw grid paths are smoothed using Taut String-Pulling ($\Theta^*$-style line-of-sight shortcutting) with collision clearance checks, eliminating grid staircases. Lookahead is adaptively contracted ($L_{\text{eff}} = \min(L_{\text{nom}}, \max(0.65, 2.2(D_{\text{clear}} - r_{\text{robot}} + 0.04)))$) at doorways to ensure orthogonal portal entry.
 
-\subsection{Dynamic Impasse Discovery}
-If robot displacement $\|\mathbf{p}_t - \mathbf{p}_{t-15}\| < 0.04\,\text{m}$ during an active mission, the passage is declared an impasse. A virtual obstacle disk ($r_{\text{imp}} = 0.45\,\text{m}$) is projected into the costmap, and Dijkstra wave-front propagation discovers alternative open corridors in $< 4\,\text{ms}$.
+\subsection{Decaying Dynamic Impasse Layer}
+If displacement $\|\mathbf{p}_t - \mathbf{p}_{t-15}\| < 0.04\,\text{m}$ persists over 15 frames, a localized soft-cost barrier ($r_{\text{imp}} = 0.22\,\text{m}$, $\Delta \text{Cost} = +2.5$) is injected, avoiding the catastrophic doorway closures of hard disks and decaying automatically after 100 control steps or $2.5\,\text{m}$ displacement.
 
 \subsection{Active 4-Layer Dynamic Safety Shield}
 The safety shield intercepts raw policy commands:
 \begin{enumerate}
-    \item \textbf{Forward Arc Scanning:} Evaluates sectors 8 to 16 ($\pm 60^\circ$ forward arc) to obtain clearance $d_{\text{wide}}$.
+    \item \textbf{Forward \& Flank Arc Scanning:} Concurrently monitors $\pm 60^\circ$ forward arc and lateral flanks ($[14:18]$ left, $[6:10]$ right).
     \item \textbf{Kinematic Braking Governor:} Enforces $v_{\text{target}} = \min(v_{\text{cmd}}, \sqrt{2 a_v^{\max} \max(0, d_{\text{wide}} - r_{\text{robot}} - 0.06)})$.
-    \item \textbf{Lateral Repulsive Steering:} Injects yaw deflection $\Delta \omega$ based on differential left-right clearance.
-    \item \textbf{Auto-Recovery:} Commands reverse roll ($v = -0.12\,\text{m/s}$) and outward pivot upon critical proximity ($< 0.26\,\text{m}$).
-    \item \textbf{Disengagement Invariance:} State transitions increasing clearance ($d_{\text{cand}} > d_{\text{curr}} + 10^{-5}\,\text{m}$) are permitted, eliminating the simulation ``sticky wall'' trap.
+    \item \textbf{Lateral Steering \& Doorway Centering:} Injects centering bias when passing through tight corridors and throttles forward speed ($v \le 0.08\,\text{m/s}$) if flank clearance $< r_{\text{robot}} + 0.035\,\text{m}$.
+    \item \textbf{Flank Disengagement Recovery:} Commands outward yaw and reverse ($v = -0.08\,\text{m/s}$) to extract chassis if a flank is pinched against a door post.
+    \item \textbf{Disengagement Invariance:} State transitions increasing clearance ($d_{\text{cand}} > d_{\text{curr}} + 10^{-5}\,\text{m}$) or sliding parallel are permitted, eliminating the simulation ``sticky wall'' trap.
 \end{enumerate}
 
 \section{Experimental Results}

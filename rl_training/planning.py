@@ -9,7 +9,7 @@ import numpy as np
 from scipy import ndimage
 
 from . import config as C
-from .maps import collides
+from .maps import collides, rect_clearance
 
 _SQ2 = math.sqrt(2.0)
 _NBRS = [(-1, 0, 1.0), (1, 0, 1.0), (0, -1, 1.0), (0, 1, 1.0),
@@ -17,8 +17,10 @@ _NBRS = [(-1, 0, 1.0), (1, 0, 1.0), (0, -1, 1.0), (0, 1, 1.0),
 
 
 def make_clearance_penalty(blocked: np.ndarray, res: float = C.GRID_RES,
-                           margin: float = 0.45, max_penalty: float = 2.5) -> np.ndarray:
-    """Compute normalized clearance penalty: 0 in wide open corridors, higher near walls/corners."""
+                           margin: float = 0.25, max_penalty: float = 0.35) -> np.ndarray:
+    """Compute normalized clearance penalty: acts as a gentle Voronoi medial-axis tie-breaker.
+    Guides Dijkstra along the center line of doorways and narrow corridors without distorting
+    global Euclidean path length or inducing non-optimal room detours."""
     dist = ndimage.distance_transform_edt(~blocked) * res
     penalty = np.where((dist < margin) & ~blocked, ((margin - dist) / margin) ** 2 * max_penalty, 0.0)
     return penalty
@@ -148,12 +150,48 @@ def has_line_of_sight(p1: tuple[float, float], p2: tuple[float, float],
     return True
 
 
+def shortcut_path(path_xy: list[tuple[float, float]], rects: np.ndarray,
+                  clearance_radius: float = C.ROBOT_RADIUS + 0.04) -> list[tuple[float, float]]:
+    """Taut string-pulling (Theta*-style line-of-sight shortcutting):
+    Replaces jagged 8-connected grid staircase segments with the true straight Euclidean
+    chords having at least `clearance_radius` obstacle clearance."""
+    if len(path_xy) <= 2:
+        return list(path_xy)
+
+    pruned = [path_xy[0]]
+    curr_i = 0
+    n = len(path_xy)
+
+    while curr_i < n - 1:
+        # Greedily search furthest reachable waypoint with direct collision-free line of sight
+        furthest_j = curr_i + 1
+        for j in range(n - 1, curr_i, -1):
+            if has_line_of_sight(path_xy[curr_i], path_xy[j], rects, radius=clearance_radius):
+                furthest_j = j
+                break
+        pruned.append(path_xy[furthest_j])
+        curr_i = furthest_j
+
+    return pruned
+
+
 def extract_visible_waypoint(field: np.ndarray, rc: tuple[int, int],
                              rx: float, ry: float, rects: np.ndarray,
                              max_len: float = C.LOOKAHEAD * 1.5,
                              clearance_radius: float = C.ROBOT_RADIUS + 0.03) -> tuple[float, float]:
-    """Extract path cells from geodesic field, returning the furthest waypoint with unobstructed line of sight."""
-    path_cells = extract_path(field, rc, max_len=max_len)
+    """Extract path cells from geodesic field, returning the furthest waypoint with unobstructed line of sight.
+
+    Includes Constrained Corridor Lookahead (Portal Invariance):
+    When negotiating a narrow constriction or doorway, lookahead is adaptively contracted
+    to guide the robot squarely through the portal before turning around blind room corners.
+    """
+    local_clr = rect_clearance(rx, ry, rects)
+    if local_clr < C.ROBOT_RADIUS + 0.12:
+        eff_max_len = min(max_len, max(0.65, 2.2 * (local_clr - C.ROBOT_RADIUS + 0.04)))
+    else:
+        eff_max_len = max_len
+
+    path_cells = extract_path(field, rc, max_len=eff_max_len)
     if not path_cells:
         return rc_to_xy(*rc)
 

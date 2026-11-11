@@ -81,24 +81,26 @@ The reward function guides the agent using a privileged 8-connected geodesic fie
 \end{equation}
 where $R_{\text{prox}} = -0.5 (1.0 - \min(\mathbf{r}_t)/0.6)$ when $\min(\mathbf{r}_t) < 0.6\,\text{m}$, and $R_{\text{terminal}} \in \{+50.0 \text{ (goal)}, -50.0 \text{ (collision)}\}$.
 
-\subsection{Medial-Axis Clearance-Weighted Planning}
-To prevent the global plan from hugging inflation boundaries, Euclidean distance transform values $D_{\text{clear}}(r, c)$ are penalized quadratically below margin $d_{\text{margin}} = 0.45\,\text{m}$:
+\subsection{Medial-Axis Clearance-Weighted Planning \& Taut String-Pulling}
+To prevent the global plan from clipping obstacle corners while preserving true Euclidean path optimality, Euclidean distance transform values $D_{\text{clear}}(r, c)$ relative to the inflated boundary are penalized quadratically below margin $d_{\text{margin}} = 0.25\,\text{m}$:
 \begin{equation}
-\text{Cost}_{\text{clear}}(r, c) = \left( \frac{d_{\text{margin}} - D_{\text{clear}}(r, c)}{d_{\text{margin}}} \right)^2 \cdot 2.5
+\text{Cost}_{\text{clear}}(r, c) = \left( \frac{d_{\text{margin}} - D_{\text{clear}}(r, c)}{d_{\text{margin}}} \right)^2 \cdot 0.35
 \end{equation}
-Edge traversal costs in Dijkstra wave-front propagation are scaled by $(1.0 + \text{Cost}_{\text{clear}})$, naturally centering the global path along the medial axis of narrow passages.
+Edge traversal costs in Dijkstra wave-front propagation are scaled by $(1.0 + \text{Cost}_{\text{clear}})$. Setting $\alpha_{\text{clear}} = 0.35$ provides an essential Voronoi medial-axis tie-breaker: it naturally centers global paths along corridor and portal medians without inducing the metric distortions or multi-room detour artifacts caused by heavy clearance penalties. 
 
-\subsection{Autonomous Dynamic Impasse & Alternative Rerouting}
-When cumulative displacement $\|\mathbf{p}_t - \mathbf{p}_{t-15}\| < 0.04\,\text{m}$ while tracking an active goal, the system projects a virtual blockade disk ($r_{\text{imp}} = 0.45\,\text{m}$) at the pinch point on the planning costmap. In $< 4\,\text{ms}$, Dijkstra wave-front propagation discovers alternative topological corridors, automatically guiding the AMR out of deadlocks.
+Furthermore, raw 8-connected grid paths are pruned via greedy line-of-sight shortcutting (\textit{Taut String-Pulling}, $\Theta^*$-style pruning). For discrete path coordinates $\{P_0, \dots, P_M\}$, intermediate nodes are pruned if collision-free clearance $\ge r_{\text{robot}} + 0.04\,\text{m}$ holds along the straight Euclidean chord, eliminating jagged staircases and yielding minimal-length Euclidean ribbons. When passing through doorways ($D_{\text{clear}} < r_{\text{robot}} + 0.12\,\text{m}$), lookahead is adaptively contracted ($L_{\text{eff}} = \min(L_{\text{nom}}, \max(0.65, 2.2(D_{\text{clear}} - r_{\text{robot}} + 0.04)))$) to enforce orthogonal portal entry before executing turning maneuvers into adjacent rooms.
 
-\subsection{Active 4-Layer Dynamic Safety Shield}
+\subsection{Decaying Soft-Cost Dynamic Impasse Layer}
+When cumulative displacement $\|\mathbf{p}_t - \mathbf{p}_{t-15}\| < 0.04\,\text{m}$ over 15 frames ($1.5\,\text{s}$) while tracking an active goal, the system injects a localized soft-cost barrier ($r_{\text{imp}} = 0.22\,\text{m}$) into the clearance costmap ($\Delta \text{Cost} = +2.5$). Unlike lethal cell closures that permanently sever $0.9\,\text{m}$ doorways, this soft penalty diverts the planner to alternative corridors if accessible nearby while permitting traversal if no reasonable alternative exists. The barrier automatically expires after 100 control steps ($10\,\text{s}$) or when the AMR moves $> 2.5\,\text{m}$ away, restoring the primary shortest path.
+
+\subsection{Active 4-Layer Dynamic Safety Shield \& Flank-Pinch Protection}
 The safety shield intercepts raw policy commands through four cascading layers:
 \begin{enumerate}
-    \item \textbf{Layer 1 (Forward $120^\circ$ Arc Scanning):} Evaluates sectors 8 to 16 ($\pm 60^\circ$): $d_{\text{wide}} = \min_{k \in [8, 16]} (\bar{r}_k) \cdot R_{\max}$.
+    \item \textbf{Layer 1 (Multi-Sector Arc \& Flank Scanning):} Concurrently monitors forward arc sectors 8 to 16 ($\pm 60^\circ$) and lateral flank sectors ($[14:18]$ left, $[6:10]$ right).
     \item \textbf{Layer 2 (Discrete CBF Stopping Governor):} Enforces kinematic braking ceiling $v_{\text{allowable}} = \sqrt{2 a_v^{\max} \max(0, d_{\text{wide}} - r_{\text{robot}} - 0.06)}$. If dead-ahead narrow clearance $< r_{\text{robot}} + 0.08\,\text{m}$, $v = 0.0\,\text{m/s}$.
-    \item \textbf{Layer 3 (Lateral Repulsive Potential Steering):} Applies yaw moment $\Delta \omega$ proportional to clearance asymmetry between left and right sectors.
-    \item \textbf{Layer 4 (Auto-Recovery State Machine):} If proximity $< 0.26\,\text{m}$, commands $v = -0.12\,\text{m/s}$ and outward yaw for $0.8\,\text{s}$ before resuming.
-    \item \textbf{Disengagement Invariance:} Even in near-collision states, candidate transitions that strictly increase clearance ($d_{\text{cand}} > d_{\text{curr}} + 10^{-5}\,\text{m}$) are permitted, eliminating the ``sticky wall'' trap.
+    \item \textbf{Layer 3 (Lateral Repulsive Potential Steering \& Doorway Centering):} Steers toward the corridor midline when both flanks detect walls within $0.65\,\text{m}$, and restricts forward velocity ($v \le 0.08\,\text{m/s}$) if flank clearance $< r_{\text{robot}} + 0.035\,\text{m}$.
+    \item \textbf{Layer 4 (Auto-Recovery State Machine):} If a flank is pinched against a door post, forward drive is suppressed, and an orthogonal disengagement torque is applied (with reverse $v = -0.08\,\text{m/s}$ if rear is unblocked) to safely extract the robot.
+    \item \textbf{Disengagement Invariance:} Candidate transitions that strictly increase obstacle clearance ($d_{\text{cand}} > d_{\text{curr}} + 10^{-5}\,\text{m}$) or slide parallel along unblocked coordinates are permitted, eliminating sticky wall traps.
 \end{enumerate}
 
 \section{Experimental Results and Discussion}

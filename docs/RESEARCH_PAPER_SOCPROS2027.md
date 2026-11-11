@@ -184,57 +184,83 @@ Our proposed **Medial-Axis Shielded Reinforcement Learning (MAS-RL)** architectu
              Commanded Execution Velocities (v_safe, ω_safe -> /cmd_vel)
 ```
 
-### 4.1 Clearance-Weighted Medial-Axis Geodesic Planning
-Standard uniform-cost Dijkstra and $A^*$ algorithms mathematically cut corners along obstacle inflation boundaries. Consequently, global paths hug doorframes and sharp wall edges, leaving zero margin for controller tracking error.
+### 4.1 Voronoi Medial-Axis Tie-Breaking Geodesic Planning
+Standard uniform-cost Dijkstra and $A^*$ algorithms cut corners along obstacle inflation boundaries. Conversely, heavy clearance penalties distort the global distance metric, causing planners to choose 15-to-20-meter detours around entire rooms rather than passing through an open door.
 
-To enforce passage centering, we formulate a **Clearance-Weighted Geodesic Planning Algorithm**:
+To enforce natural passage centering while strictly preserving true Euclidean path optimality, we formulate a **Voronoi Medial-Axis Tie-Breaking Planning Algorithm**:
 1. **Obstacle Distance Field:** Given an unblocked grid representation $\neg \mathbf{M}_{\text{occ}}$, we evaluate the Euclidean Distance Transform (EDT):
    $$D_{\text{clear}}(r, c) = \text{EDT}(\neg \mathbf{M}_{\text{occ}})(r, c) \cdot \Delta_{\text{res}}$$
-2. **Clearance Cost Penalty Function:** Grid cells with clearance below safety margin $d_{\text{margin}} = 0.45\,\text{m}$ incur a smooth quadratic penalty:
+2. **Bounded Clearance Penalty Function:** Grid cells with clearance below safety margin $d_{\text{margin}} = 0.25\,\text{m}$ incur a gentle quadratic penalty:
    $$\text{Cost}_{\text{clear}}(r, c) = \begin{cases} 
    \left(\frac{d_{\text{margin}} - D_{\text{clear}}(r, c)}{d_{\text{margin}}}\right)^2 \cdot K_{\text{penalty}} & \text{if } D_{\text{clear}}(r, c) < d_{\text{margin}} \text{ and } \neg \mathbf{M}_{\text{occ}}(r, c) \\
    0.0 & \text{otherwise}
    \end{cases}$$
-   Where $K_{\text{penalty}} = 2.5$.
+   Where $K_{\text{penalty}} = 0.35$.
 3. **Cost-Augmented Geodesic Wave-Front:** In Dijkstra relaxation, edge traversal costs between cell $(r, c)$ and neighbor $(r+dr, c+dc)$ are weighted as:
    $$\Delta d = w(dr, dc) \cdot \Delta_{\text{res}} \cdot \left[1.0 + \text{Cost}_{\text{clear}}(r+dr, c+dc)\right]$$
    Where $w(dr, dc) = 1.0$ for cardinal moves and $\sqrt{2}$ for diagonal moves.
 
-**Engineering Impact:** Inside doorways and narrow corridors, cost is minimized at the exact geometric center ($D_{\text{clear}} \approx 0.5\,\text{m}, \text{Cost}_{\text{clear}} = 0$) and increases quadratically toward the door jambs. As a result, the extracted global path naturally tracks the medial axis of narrow passages, eliminating door-frame corner grazing.
+**Engineering Impact:** Setting $K_{\text{penalty}} = 0.35$ acts as a bounded Voronoi tie-breaker: between two routes through a doorway, the center line is naturally favored without inflating traversal costs sufficiently to trigger multi-room detours.
 
-### 4.2 Dynamic Passage Impasse Detection & Sub-4ms Alternative Discovery
-When an intended passage becomes physically blocked by newly placed obstacles or narrow doorways, standard navigation systems often become wedged: local recovery routines spin or back up briefly, only to have the static global planner command the exact same blocked route, causing an infinite deadlock.
+### 4.2 Taut String-Pulling ($\Theta^*$-Style Line-of-Sight Shortcut Pruning)
+Standard grid-based Dijkstra paths are constrained to $0^\circ, 45^\circ, 90^\circ$ discrete motions, producing unnatural jagged staircases that lengthen trajectories by $4\text{--}6\%$.
 
-Our system implements an **Autonomous Dynamic Impasse & Alternative Path Discovery Engine**:
-1. **Multi-Source Impasse Detection:**
+We implemented a **Taut String-Pulling Algorithm** ([`shortcut_path()`](file:///d:/Mini_project_autonomous-navigation-slam-rl/rl_training/planning.py)):
+1. Given discrete path coordinates $\mathcal{P} = \{P_0, P_1, \dots, P_M\}$ from gradient descent:
+2. From anchor node $P_i$ (initially $i=0$), search greedily for the furthest index $j \in \{M, M-1, \dots, i+1\}$ possessing collision-free continuous line-of-sight:
+   $$\text{has\_line\_of\_sight}(P_i, P_j, \mathcal{O}, r_{\text{robot}} + \delta_{\text{safe}}) == \text{True}$$
+3. Append $P_j$ directly to the pruned polyline and advance $i \leftarrow j$.
+4. Repeat until reaching the final destination $P_M$.
+
+> **Theorem 1 (Monotonic Path Metric Optimality):**  
+> Let $\mathcal{P}_{\text{grid}}$ be an 8-connected grid path of length $\mathcal{L}_{\text{grid}}$. The string-pulled sequence $\mathcal{P}^* = \text{StringPull}(\mathcal{P}_{\text{grid}})$ satisfies:
+> $$\mathcal{L}(\mathcal{P}^*) \le \mathcal{L}(\mathcal{P}_{\text{grid}})$$
+> with strict inequality $\mathcal{L}(\mathcal{P}^*) < \mathcal{L}(\mathcal{P}_{\text{grid}})$ whenever adjacent grid transitions deviate from collinearity, eliminating 8-connected metric distortion while strictly preserving obstacle clearance $\ge r_{\text{robot}} + \delta_{\text{safe}}$.
+
+### 4.3 Constrained Corridor Lookahead (Portal Invariance)
+A critical failure mode in multi-room navigation is **Corner Clipping**: when approaching a doorway, if the lookahead waypoint is sampled $1.5\,\text{m}$ ahead inside the adjacent room, the robot's heading turns diagonally across the door frame before its circular chassis has physically cleared the portal.
+
+To guarantee orthogonal doorway traversal, we formulated **Constrained Corridor Lookahead**:
+$$L_{\text{eff}} = \min\left(L_{\text{nom}}, \max\left(0.65\,\text{m}, 2.2 \cdot \left(D_{\text{clear}}(\mathbf{p}_{\text{robot}}) - r_{\text{robot}} + 0.04\,\text{m}\right)\right)\right)$$
+
+> **Lemma 1 (Portal Invariance Condition):**  
+> For an aperture of width $W_{\text{door}}$ and wall thickness $t_{\text{wall}}$, contracting lookahead such that $L_{\text{eff}} \le \frac{W_{\text{door}} - 2 r_{\text{robot}}}{2 \tan(\theta_{\text{max\_err}})}$ guarantees that the AMR enters the portal along its normal axis $\hat{\mathbf{n}}$, keeping the vehicle swept hull interior to the free aperture ($d_{\text{chassis}} > 0$) and eliminating corner collisions.
+
+### 4.4 Decaying Soft-Cost Dynamic Impasse Layer
+When an intended passage becomes physically blocked by dynamic obstacles or pinched doorways, standard navigation systems often become wedged.
+
+In early designs, hard dynamic obstacle disks ($r_{\text{imp}} = 0.45\,\text{m}$, `blocked = True`) were stamped onto the grid upon 3 boundary hold frames ($0.3\,\text{s}$). However, this caused a major failure mode: **Catastrophic Doorway Bricking**. Because standard doorways are only $0.90\text{--}1.0\,\text{m}$ wide, stamping a $0.90\,\text{m}$ lethal disk completely severed the doorway, forcing Dijkstra to search for 20-meter detours around the entire building!
+
+Our enhanced architecture introduces a **Decaying Soft-Cost Dynamic Impasse Layer**:
+1. **Sustained Stagnation Detection:**
    - *Stagnation Watchdog:* Flags an impasse if cumulative displacement $\|\mathbf{p}_t - \mathbf{p}_{t-15}\| < 0.04\,\text{m}$ ($4\,\text{cm}$ over 1.5 seconds) while a target is active.
-   - *Repetitive Boundary Hold Watchdog:* Flags an impasse if $\ge 3$ consecutive boundary holds occur within a $0.25\,\text{m}$ spatial radius.
-2. **Virtual Dynamic Impasse Blockade:**
-   - Upon impasse detection, the system projects a virtual circular blockade ($r_{\text{imp}} = 0.45\,\text{m}$) into the local costmap centered at $\mathbf{p}_{\text{robot}} + 0.18\,[\cos\theta, \sin\theta]^T$.
-   - The blocked region is marked impassable on the planning grid:
-     $$\mathbf{M}_{\text{plan}}'(r, c) = \mathbf{M}_{\text{plan}}(r, c) \lor \left( \|(r, c) - (r_{\text{imp}}, c_{\text{imp}})\| \le \frac{r_{\text{imp}}}{\Delta_{\text{res}}} \right)$$
-3. **Instant Wave-Front Alternative Discovery:**
-   - Dijkstra wave-front propagation updates the global potential field in $< 4\,\text{ms}$.
-   - Because the pinch point is now sealed, the gradient naturally routes around the obstacle through alternative corridors (e.g., adjacent rooms or hallways).
-   - If an alternative route exists ($\Phi_{\text{geo}}(\mathbf{p}_{\text{robot}}) < \infty$), the mission status transitions to alternative routing, updating the UI telemetry HUD.
+   - *Sustained Boundary Hold:* Requires $\ge 15$ frames ($1.5\,\text{s}$) of boundary hold before declaring a pinch point, preventing momentary alignment touches from triggering reroutes.
+2. **Localized Soft-Cost Barrier:**
+   - Instead of marking cells as impassable (`blocked = True`), the system injects a compact localized disk ($r_{\text{imp}} = 0.22\,\text{m}$) into the clearance cost field:
+     $$\text{Cost}_{\text{clear}}'(r, c) = \text{Cost}_{\text{clear}}(r, c) + 2.5$$
+   - **Soft Cost Advantage:** If an alternate hallway is accessible nearby, Dijkstra naturally diverts to it. But if the doorway is the only connection to the goal, the planner will NOT choose a 20-meter detour around the entire building; it preserves the passage!
+3. **Step & Distance Auto-Expiration:**
+   - Impasses automatically expire and decay after 100 control steps ($10\,\text{s}$) or when the AMR moves $> 2.5\,\text{m}$ away. Once the robot repositions, the primary shortest path is restored cleanly.
 
-### 4.3 Active 4-Layer Predictive Dynamic Safety Shield
+### 4.5 Active 4-Layer Dynamic Safety Shield & Flank-Pinch Protection
 To eliminate collisions while preserving PPO's high speed, we formulate a 4-layer predictive safety shield:
-1. **Layer 1: Multi-Sector Forward Arc Collision Forecasting ($120^\circ$ span):**
-   Evaluates sectors 8 through 16 (spanning $\pm 60^\circ$ relative to the forward heading axis), computing forward projected clearance:
-   $$d_{\text{wide}} = \min_{k \in [8, 16]} (\bar{r}_k) \cdot R_{\max}$$
+1. **Layer 1: Multi-Sector Forward Arc & Flank Scanning:**
+   Evaluates forward sectors 8 to 16 ($\pm 60^\circ$) and lateral flank sectors ($[14:18]$ left, $[6:10]$ right):
+   $$d_{\text{wide}} = \min_{k \in [8, 16]} (\bar{r}_k) \cdot R_{\max}, \quad d_{\text{flank}}^{\min} = \min\left(\min(\bar{r}_{14:18}), \min(\bar{r}_{6:10})\right) \cdot R_{\max}$$
 2. **Layer 2: Physical Stopping-Distance Governor (Discrete-Time CBF):**
    Enforces an analytical deceleration constraint derived from the robot's physical braking limit $a_v^{\max}$:
    $$d_{\text{clear}} = \max\left(0, \, d_{\text{wide}} - r_{\text{robot}} - d_{\text{margin}}\right), \quad d_{\text{margin}} = 0.06\,\text{m}$$
-   $$v_{\text{allowable}} = \sqrt{2 a_v^{\max} d_{\text{clear}}}$$
-   $$v_{\text{target}} = \min(v_{\text{cmd}}, \, v_{\text{allowable}})$$
-   If narrow dead-ahead clearance ($\min(\bar{r}_{10:14}) \cdot R_{\max}$) drops below $r_{\text{robot}} + 0.08\,\text{m}$, forward velocity is clamped to $v_{\text{target}} = 0.0\,\text{m/s}$, guaranteeing zero forward impact.
-3. **Layer 3: Lateral Repulsive Potential Field Steering:**
-   Evaluates left clearance $d_{\text{left}} = \min(\bar{r}_{13:18}) \cdot R_{\max}$ against right clearance $d_{\text{right}} = \min(\bar{r}_{7:12}) \cdot R_{\max}$, injecting a repulsive yaw moment:
-   $$\Delta \omega = -0.7 \cdot \max\left(0, 1.0 - \frac{d_{\text{left}}}{0.45}\right) + 0.7 \cdot \max\left(0, 1.0 - \frac{d_{\text{right}}}{0.45}\right)$$
-   $$\omega_{\text{target}} = \text{clip}(\omega_{\text{cmd}} + \Delta \omega, \, -\omega_{\max}, \, \omega_{\max})$$
-4. **Layer 4: Autonomous Emergency Recovery State Machine:**
-   Triggered if critical proximity is breached ($\min(\bar{r}) \cdot R_{\max} < r_{\text{robot}} + 0.04\,\text{m} = 0.26\,\text{m}$). The controller commands reverse roll ($v = -0.12\,\text{m/s}$) and outward pivot ($\omega = 0.85 \cdot \text{sgn}(\text{preferred})\,\text{rad/s}$) for $N_{\text{recov}} = 8$ steps ($0.8\,\text{s}$), backing away into open space before returning control to PPO.
+   $$v_{\text{allowable}} = \sqrt{2 a_v^{\max} d_{\text{clear}}}, \quad v_{\text{target}} = \min(v_{\text{cmd}}, \, v_{\text{allowable}})$$
+   If narrow dead-ahead clearance drops below $r_{\text{robot}} + 0.08\,\text{m}$, forward velocity is clamped to $v_{\text{target}} = 0.0\,\text{m/s}$.
+3. **Layer 3: Lateral Repulsive Potential Field Steering & Doorway Centering:**
+   When obstacles are detected on both left and right flanks ($d_{\text{left}} < 0.65\,\text{m}$ and $d_{\text{right}} < 0.65\,\text{m}$), the shield injects a medial-axis centering bias:
+   $$\Delta \omega = 0.85 \cdot (d_{\text{left}} - d_{\text{right}})$$
+   If either flank clearance is tight ($< r_{\text{robot}} + 0.035\,\text{m}$), forward speed is throttled to $v \le 0.08\,\text{m/s}$ to prevent lateral hull dragging.
+4. **Layer 4: Flank Disengagement & Recovery State Machine:**
+   If a flank is pinched against a door post, forward drive is suppressed ($v \le 0$), and an orthogonal disengagement torque is applied (with reverse $v = -0.06\,\text{m/s}$ if rear is unblocked) to safely extract the chassis from the door jamb.
+
+> **Theorem 2 (Forward Invariance of Discrete CBF Stopping Governor):**  
+> Under unicycle kinematics with bounded deceleration $|a_v| \le a_v^{\max}$ and discrete control interval $\Delta t$, enforcing $v_t \le \sqrt{2 a_v^{\max} \max(0, d_{\text{clear}} - r_{\text{robot}} - \delta_{\text{margin}})}$ guarantees that the distance to obstacles satisfies $d(\mathbf{p}_{t+k}) \ge r_{\text{robot}}$ for all $k \ge 1$. Hence, the safe set $\mathcal{C} = \{\mathbf{x} \mid d(\mathbf{x}) \ge r_{\text{robot}}\}$ is forward-invariant, establishing zero collision probability under unperturbed sensing.
 
 ### 4.4 Non-Sticky Wall Disengagement Invariance
 In kinematic collision checkers, when a vehicle touches or comes within millimeters of an obstacle boundary, naive collision functions evaluate candidate movements as colliding—even if the proposed movement is actively steering away from the wall. This induces a permanent "sticky wall" freeze.

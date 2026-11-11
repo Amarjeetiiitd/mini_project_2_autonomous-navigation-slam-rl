@@ -47,7 +47,8 @@ from .nav_env import NavEnv
 from .obs import cmd_to_action, action_to_cmd, goal_in_robot_frame, build_observation
 from .planning import (
     geodesic_field, xy_to_rc, rc_to_xy, smooth_sampler, extract_path,
-    nearest_finite, extract_visible_waypoint, has_line_of_sight, make_clearance_penalty
+    nearest_finite, extract_visible_waypoint, has_line_of_sight, make_clearance_penalty,
+    shortcut_path
 )
 
 
@@ -79,6 +80,7 @@ class AutonomousNavApp:
         self.recovery_direction = 1.0
         self.stagnation_history = []
         self.stuck_frames = 0
+        self.is_target_unreachable = False
 
         # Dynamic Impasse & Alternative Path Discovery Layer
         self.dynamic_impasses = []  # list of {"x": float, "y": float, "radius": float, "timestamp": float}
@@ -719,10 +721,54 @@ class AutonomousNavApp:
         elif mode == "set_robot":
             self.teleport_robot(x, y)
 
+    def snap_box_coordinates(self, x0: float, y0: float, x1: float, y1: float) -> tuple[float, float, float, float]:
+        """Align obstacle box edges flush to nearby map boundaries and interior walls if within 0.15 m."""
+        w_max, h_max = self.world.width, self.world.height
+        bx0, bx1 = min(x0, x1), max(x0, x1)
+        by0, by1 = min(y0, y1), max(y0, y1)
+
+        # Snap to outer walls (wall thickness t = 0.10 m)
+        if bx0 < 0.25:
+            bx0 = 0.10
+        if by0 < 0.25:
+            by0 = 0.10
+        if bx1 > w_max - 0.25:
+            bx1 = w_max - 0.10
+        if by1 > h_max - 0.25:
+            by1 = h_max - 0.10
+
+        # Magnetic snap to existing wall edges
+        for rx0, ry0, rx1, ry1 in self.rects:
+            for edge in (rx0, rx1):
+                if abs(bx0 - edge) < 0.12:
+                    bx0 = edge
+                if abs(bx1 - edge) < 0.12:
+                    bx1 = edge
+            for edge in (ry0, ry1):
+                if abs(by0 - edge) < 0.12:
+                    by0 = edge
+                if abs(by1 - edge) < 0.12:
+                    by1 = edge
+
+        bx0 = float(np.clip(bx0, 0.10, w_max - 0.10))
+        bx1 = float(np.clip(bx1, 0.10, w_max - 0.10))
+        by0 = float(np.clip(by0, 0.10, h_max - 0.10))
+        by1 = float(np.clip(by1, 0.10, h_max - 0.10))
+
+        return bx0, by0, bx1, by1
+
     def on_canvas_drag(self, event):
         if self.interaction_mode.get() == "add_obstacle" and self.drag_start_point is not None:
             if event.xdata is not None and event.ydata is not None:
                 self.drag_current_point = (float(event.xdata), float(event.ydata))
+                bx0, by0, bx1, by1 = self.snap_box_coordinates(
+                    self.drag_start_point[0], self.drag_start_point[1],
+                    self.drag_current_point[0], self.drag_current_point[1]
+                )
+                self.update_status(
+                    f"Drawing Box: ({bx0:.2f}, {by0:.2f}) to ({bx1:.2f}, {by1:.2f}) [Size: {bx1 - bx0:.2f}m x {by1 - by0:.2f}m]",
+                    "#fbbf24"
+                )
                 self.redraw_canvas()
 
     def on_canvas_release(self, event):
@@ -730,9 +776,8 @@ class AutonomousNavApp:
             if event.xdata is not None and event.ydata is not None:
                 x0, y0 = self.drag_start_point
                 x1, y1 = float(event.xdata), float(event.ydata)
-                min_x, max_x = min(x0, x1), max(x0, x1)
-                min_y, max_y = min(y0, y1), max(y0, y1)
-                if (max_x - min_x) > 0.2 and (max_y - min_y) > 0.2:
+                min_x, min_y, max_x, max_y = self.snap_box_coordinates(x0, y0, x1, y1)
+                if (max_x - min_x) >= 0.10 and (max_y - min_y) >= 0.10:
                     new_obs = (min_x, min_y, max_x, max_y)
                     self.custom_obstacles.append(new_obs)
                     self.rects.append(new_obs)
@@ -740,7 +785,10 @@ class AutonomousNavApp:
                     self.env.rects = self.rects_arr
                     if self.active_target is not None:
                         self.plan_path_to_target(self.active_target[0], self.active_target[1])
-                    self.update_status(f"Added custom obstacle block! Total obstacles: {len(self.rects)}", "#fbbf24")
+                    self.update_status(
+                        f"Placed custom obstacle box [{max_x - min_x:.2f}m x {max_y - min_y:.2f}m]! Total obstacles: {len(self.rects)}",
+                        "#fbbf24"
+                    )
             self.drag_start_point = None
             self.drag_current_point = None
             self.redraw_canvas()
@@ -816,20 +864,28 @@ class AutonomousNavApp:
         self.redraw_canvas()
 
     def snap_to_free_space(self, x: float, y: float, search_radius: float = 0.8) -> tuple[float, float] | None:
-        if not collides(x, y, self.rects_arr, radius=C.ROBOT_RADIUS):
+        # Check if clicked point is in free floor space (not inside a solid wall)
+        # Using a small margin (0.04 m) ensures that clicking right near a boundary or doorway
+        # preserves the user's EXACT intended position without displacing it away!
+        clr = rect_clearance(x, y, self.rects_arr)
+        if clr >= 0.04:
             return x, y
 
+        # If clicked strictly inside an obstacle wall, project smoothly outward
+        # to the closest valid point just outside the obstacle surface
         best_pt, best_dist = None, 1e9
-        for r in np.linspace(0.1, search_radius, 8):
-            for ang in np.linspace(0, 2 * math.pi, 16, endpoint=False):
+        for r in np.linspace(0.04, search_radius, 24):
+            for ang in np.linspace(0, 2 * math.pi, 32, endpoint=False):
                 cand_x = x + r * math.cos(ang)
                 cand_y = y + r * math.sin(ang)
-                if not collides(cand_x, cand_y, self.rects_arr, radius=C.ROBOT_RADIUS):
+                if rect_clearance(cand_x, cand_y, self.rects_arr) >= 0.05:
                     d = (cand_x - x)**2 + (cand_y - y)**2
                     if d < best_dist:
                         best_dist = d
                         best_pt = (cand_x, cand_y)
-        return best_pt
+            if best_pt is not None:
+                break
+        return best_pt if best_pt is not None else (x, y)
 
     def plan_path_to_target(self, gx: float, gy: float):
         self.env.goal = np.array([gx, gy], dtype=np.float64)
@@ -839,12 +895,13 @@ class AutonomousNavApp:
         # Dynamic inflated occupancy grid including both world architecture and custom obstacles
         blocked_grid = make_plan_blocked(self.world.width, self.world.height, self.rects_arr)
 
-        # Apply active dynamic impasse blocks (trapped/pinched passages)
+        # Apply active dynamic impasse costs (soft penalty, avoids permanently severing doorways)
         ny, nx = occ_shape
+        clearance_cost = make_clearance_penalty(blocked_grid)
         for imp in self.dynamic_impasses:
             ix, iy, ir = imp["x"], imp["y"], imp["radius"]
             irc = xy_to_rc(ix, iy, occ_shape)
-            r_cells = int(math.ceil(ir / C.GRID_RES))
+            r_cells = max(1, int(round(ir / C.GRID_RES)))
             for dr in range(-r_cells, r_cells + 1):
                 for dc in range(-r_cells, r_cells + 1):
                     if dr * dr + dc * dc <= r_cells * r_cells:
@@ -852,14 +909,13 @@ class AutonomousNavApp:
                         if 0 <= rr < ny and 0 <= cc < nx:
                             # Protect immediate target vicinity
                             if abs(rr - target_rc[0]) > 2 or abs(cc - target_rc[1]) > 2:
-                                blocked_grid[rr, cc] = True
+                                clearance_cost[rr, cc] += 2.5
 
         # Ensure target coordinate cell itself is not masked by inflation
         tr, tc = target_rc
         if 0 <= tr < occ_shape[0] and 0 <= tc < occ_shape[1]:
             blocked_grid[max(0, tr - 2):min(occ_shape[0], tr + 3), max(0, tc - 2):min(occ_shape[1], tc + 3)] = False
 
-        clearance_cost = make_clearance_penalty(blocked_grid)
         self.geodesic_field_map = geodesic_field(blocked_grid, target_rc, clearance_cost=clearance_cost)
         self.field_sampler = smooth_sampler(self.geodesic_field_map)
         self.env.field = self.geodesic_field_map
@@ -872,7 +928,19 @@ class AutonomousNavApp:
 
         # Check reachability through obstacle configuration
         if math.isinf(self.shortest_geo_len) or self.shortest_geo_len > 100.0:
-            self.update_status("⚠️ TARGET BLOCKED: No reachable path through obstacles!", "#ef4444")
+            self.is_target_unreachable = True
+            self.is_running = False
+            self.current_v = 0.0
+            self.current_w = 0.0
+            self.btn_run.config(text="▶  START MISSION", bg="#475569")
+            self.safety_status_lbl.config(
+                text="🚫 UNREACHABLE: Target is completely sealed by obstacles!",
+                fg="#f87171",
+                bg="#7f1d1d",
+            )
+            self.update_status("⚠️ INFEASIBLE TARGET: No collision-free path exists! Target is walled off. Robot safely halted.", "#ef4444")
+        else:
+            self.is_target_unreachable = False
 
     def trigger_alternative_path_reroute(self, reason: str = "Pinch point impasse detected") -> bool:
         if self.active_target is None:
@@ -897,8 +965,9 @@ class AutonomousNavApp:
         imp_entry = {
             "x": ahead_x,
             "y": ahead_y,
-            "radius": 0.45,
+            "radius": 0.22,
             "timestamp": time.time(),
+            "step": self.step_count,
             "reason": reason,
         }
         self.dynamic_impasses.append(imp_entry)
@@ -958,6 +1027,10 @@ class AutonomousNavApp:
             self.update_status("Please click on the map to set a target point first!", "#ef4444")
             return
 
+        if getattr(self, "is_target_unreachable", False):
+            self.update_status("Cannot start mission: target is completely blocked/unreachable!", "#ef4444")
+            return
+
         self.is_running = not self.is_running
         if self.is_running:
             self.btn_run.config(text="⏸  PAUSE MISSION", bg="#d97706")
@@ -987,12 +1060,17 @@ class AutonomousNavApp:
             self.fps_counter = 0.9 * self.fps_counter + 0.1 * (1.0 / dt_elapsed)
 
         if self.is_running and self.active_target is not None:
-            speed = self.sim_speed_factor.get()
-            n_substeps = max(1, int(round(speed)))
-            for _ in range(n_substeps):
-                if not self.is_running or self.active_target is None:
-                    break
-                self.execute_control_step()
+            if getattr(self, "is_target_unreachable", False):
+                self.is_running = False
+                self.current_v = 0.0
+                self.current_w = 0.0
+            else:
+                speed = self.sim_speed_factor.get()
+                n_substeps = max(1, int(round(speed)))
+                for _ in range(n_substeps):
+                    if not self.is_running or self.active_target is None or getattr(self, "is_target_unreachable", False):
+                        break
+                    self.execute_control_step()
 
         self.redraw_canvas()
         self.update_telemetry_hud()
@@ -1004,6 +1082,9 @@ class AutonomousNavApp:
             pass
 
     def step_one_frame(self):
+        if getattr(self, "is_target_unreachable", False):
+            self.update_status("Cannot step: target is completely sealed/unreachable!", "#ef4444")
+            return
         if self.active_target is not None:
             self.execute_control_step()
             self.redraw_canvas()
@@ -1077,6 +1158,20 @@ class AutonomousNavApp:
         if dist_to_goal < 0.6:
             v_target = min(v_target, max(0.08, C.V_MAX * (dist_to_goal / 0.6)))
 
+        # Dynamic Impasse Auto-Expiration:
+        # Clear impasses that are older than 100 control steps (10 s) or if the robot is > 2.5 m away.
+        # This prevents temporary doorway pinches from permanently bricking passages!
+        if self.dynamic_impasses and self.active_target is not None:
+            initial_count = len(self.dynamic_impasses)
+            self.dynamic_impasses = [
+                imp for imp in self.dynamic_impasses
+                if (self.step_count - imp.get("step", self.step_count) < 100) and
+                   (math.hypot(rx - imp["x"], ry - imp["y"]) < 2.5)
+            ]
+            if len(self.dynamic_impasses) < initial_count:
+                gx, gy = self.active_target
+                self.plan_path_to_target(gx, gy)
+
         # 6. Anti-Stagnation & Freeze Watchdog Layer
         self.stagnation_history.append((rx, ry))
         if len(self.stagnation_history) > 15:
@@ -1110,6 +1205,10 @@ class AutonomousNavApp:
 
             front_narrow = sector_ranges[10:15]
             min_front_range = float(front_narrow.min())
+            left_flank = float(sector_ranges[14:18].min())
+            right_flank = float(sector_ranges[6:10].min())
+            flank_pinched_left = left_flank < (C.ROBOT_RADIUS + 0.035)
+            flank_pinched_right = right_flank < (C.ROBOT_RADIUS + 0.035)
 
             if self.recovery_mode:
                 self.recovery_steps -= 1
@@ -1121,8 +1220,26 @@ class AutonomousNavApp:
                 wpt_sec = int(np.clip(int(round((rel_wpt_ang + math.pi) / (2 * math.pi) * 24)) % 24, 0, 23))
                 wpt_clearance = float(sector_ranges[wpt_sec])
 
-                # If robot is aligned with lookahead target and front is clear: DRIVE FORWARD!
-                if abs(rel_wpt_ang) < math.radians(45) and min_front_range > C.ROBOT_RADIUS + 0.08:
+                if flank_pinched_left:
+                    # Disengage pinched left flank by pivoting away from the obstacle
+                    v_target = -0.06 if not rear_blocked else 0.0
+                    w_target = -0.90
+                    self.safety_status_lbl.config(
+                        text=f"🔄 DISENGAGING LEFT FLANK: Turning away ({self.recovery_steps})",
+                        fg="#fbbf24",
+                        bg="#78350f",
+                    )
+                elif flank_pinched_right:
+                    # Disengage pinched right flank by pivoting away from the obstacle
+                    v_target = -0.06 if not rear_blocked else 0.0
+                    w_target = 0.90
+                    self.safety_status_lbl.config(
+                        text=f"🔄 DISENGAGING RIGHT FLANK: Turning away ({self.recovery_steps})",
+                        fg="#fbbf24",
+                        bg="#78350f",
+                    )
+                # If robot is aligned with lookahead target, front is clear, AND flanks are unpinched: DRIVE FORWARD!
+                elif abs(rel_wpt_ang) < math.radians(45) and min_front_range > C.ROBOT_RADIUS + 0.08 and not (flank_pinched_left or flank_pinched_right):
                     v_target = 0.12
                     w_target = float(np.clip(rel_wpt_ang * 2.0, -C.W_MAX, C.W_MAX))
                     self.safety_status_lbl.config(
@@ -1163,7 +1280,7 @@ class AutonomousNavApp:
                     )
 
                 if self.recovery_steps <= 0:
-                    if min_front_range < C.ROBOT_RADIUS + 0.08:
+                    if min_front_range < C.ROBOT_RADIUS + 0.08 or flank_pinched_left or flank_pinched_right:
                         self.recovery_steps = 3
                     else:
                         self.recovery_mode = False
@@ -1175,11 +1292,12 @@ class AutonomousNavApp:
                 min_wide_range = float(front_wide.min())
                 min_overall_range = float(sector_ranges.min())
 
-                # Emergency recovery is ONLY triggered if front is blocked or touching physical bumper
+                # Emergency recovery is ONLY triggered if front is blocked, bumper pinched, or flank tightly pressed
                 front_blocked = min_front_range < (C.ROBOT_RADIUS + 0.04)
                 bumper_pinched = min_overall_range < (C.ROBOT_RADIUS + 0.012)
+                flank_tight = min(left_flank, right_flank) < (C.ROBOT_RADIUS + 0.015)
 
-                if (front_blocked and abs(v_target) < 0.04) or bumper_pinched:
+                if (front_blocked and abs(v_target) < 0.04) or bumper_pinched or flank_tight:
                     self.recovery_mode = True
                     self.recovery_steps = 8
                     closest_idx = int(np.argmin(sector_ranges))
@@ -1194,6 +1312,10 @@ class AutonomousNavApp:
 
                     if min_front_range < C.ROBOT_RADIUS + 0.06:
                         v_target = 0.0
+
+                    # Restrict forward velocity if flank is tight to avoid dragging against wall
+                    if min(left_flank, right_flank) < (C.ROBOT_RADIUS + 0.035):
+                        v_target = min(v_target, 0.08)
 
                     # Lateral Repulsive Potential Field & Doorway Centering
                     left_dist = float(sector_ranges[13:18].min())
@@ -1309,9 +1431,9 @@ class AutonomousNavApp:
                         self.boundary_hold_count = 1
                     self.last_boundary_hold_pos = (rx, ry)
 
-                    if self.boundary_hold_count >= 3:
-                        # Repeated boundary holds in this tight corridor -> trigger dynamic alternative reroute!
-                        self.trigger_alternative_path_reroute("Repeated boundary hold in pinch")
+                    if self.boundary_hold_count >= 15:
+                        # Sustained boundary hold in tight pinch point -> trigger dynamic alternative reroute!
+                        self.trigger_alternative_path_reroute("Sustained boundary hold in pinch")
                         self.boundary_hold_count = 0
                     elif not self.recovery_mode:
                         self.recovery_mode = True
@@ -1419,11 +1541,12 @@ class AutonomousNavApp:
             # 2. Global Geodesic Planned Route (Neon Cyan Ribbon with Directional Markers)
             if self.show_global_path.get() and self.active_target is not None and self.geodesic_field_map is not None:
                 rx, ry, _ = self.robot_pose
-                path_cells = extract_path(self.geodesic_field_map, xy_to_rc(rx, ry, self.bundle.occ.shape), max_len=18.0)
+                path_cells = extract_path(self.geodesic_field_map, xy_to_rc(rx, ry, self.bundle.occ.shape), max_len=25.0)
                 if len(path_cells) > 1:
-                    pts = [rc_to_xy(*c) for c in path_cells]
-                    pts_arr = np.array(pts)
-                    # Glowing path ribbon
+                    raw_pts = [rc_to_xy(*c) for c in path_cells]
+                    smooth_pts = shortcut_path([(rx, ry)] + raw_pts, self.rects_arr, clearance_radius=C.ROBOT_RADIUS + 0.03)
+                    pts_arr = np.array(smooth_pts)
+                    # Glowing path ribbon (taut Euclidean shortest path)
                     self.ax.plot(pts_arr[:, 0], pts_arr[:, 1], color="#38bdf8", linestyle="-", linewidth=2.8, alpha=0.85, zorder=4)
                     self.ax.plot(pts_arr[:, 0], pts_arr[:, 1], color="#bae6fd", linestyle=":", linewidth=1.2, alpha=0.9, zorder=4)
 
@@ -1452,17 +1575,29 @@ class AutonomousNavApp:
                 self.ax.plot(cx, cy, "o", color="#6ee7b7", markersize=5, zorder=6)
                 self.ax.text(cx, cy + 0.25, f"✓ #{idx+1}", color="#34d399", fontsize=8, fontweight="bold", ha="center", zorder=7)
 
-            # 6. Active Target Destination (Glowing Red Bullseye Beacon)
+            # 6. Active Target Destination (Glowing Red Bullseye Beacon or Unreachable Warning)
             if self.active_target is not None:
                 gx, gy = self.active_target
-                # Concentric radar rings
-                self.ax.add_patch(Circle((gx, gy), C.GOAL_TOLERANCE, color="#ef4444", alpha=0.2, zorder=6))
-                self.ax.add_patch(Circle((gx, gy), 0.16, color="#ef4444", fill=False, linestyle="--", linewidth=1.5, zorder=6))
-                self.ax.add_patch(Circle((gx, gy), 0.07, color="#ef4444", alpha=0.95, zorder=7))
-                # Target crosshairs
-                self.ax.plot([gx - 0.22, gx + 0.22], [gy, gy], color="#f87171", linewidth=0.9, zorder=7)
-                self.ax.plot([gx, gx], [gy - 0.22, gy + 0.22], color="#f87171", linewidth=0.9, zorder=7)
-                self.ax.text(gx, gy + 0.32, "🎯 TARGET", color="#f87171", fontsize=8, fontweight="bold", ha="center", zorder=8)
+                if getattr(self, "is_target_unreachable", False):
+                    # Prominent unreachable warning indicator
+                    self.ax.add_patch(Circle((gx, gy), 0.35, facecolor="#ef4444", edgecolor="#f87171", linestyle="--", linewidth=2.0, alpha=0.35, zorder=6))
+                    self.ax.add_patch(Circle((gx, gy), 0.14, facecolor="#dc2626", edgecolor="#b91c1c", linewidth=1.5, alpha=0.9, zorder=7))
+                    self.ax.plot([gx - 0.20, gx + 0.20], [gy - 0.20, gy + 0.20], color="#ffffff", linewidth=2.0, zorder=8)
+                    self.ax.plot([gx - 0.20, gx + 0.20], [gy + 0.20, gy - 0.20], color="#ffffff", linewidth=2.0, zorder=8)
+                    self.ax.text(
+                        gx, gy + 0.38, "🚫 UNREACHABLE (BLOCKED)",
+                        color="#f87171", fontsize=8.0, fontweight="bold", ha="center", va="bottom", zorder=9,
+                        bbox=dict(boxstyle="round,pad=0.25", facecolor="#0f172a", edgecolor="#ef4444", linewidth=1.2, alpha=0.9)
+                    )
+                else:
+                    # Concentric radar rings
+                    self.ax.add_patch(Circle((gx, gy), C.GOAL_TOLERANCE, color="#ef4444", alpha=0.2, zorder=6))
+                    self.ax.add_patch(Circle((gx, gy), 0.16, color="#ef4444", fill=False, linestyle="--", linewidth=1.5, zorder=6))
+                    self.ax.add_patch(Circle((gx, gy), 0.07, color="#ef4444", alpha=0.95, zorder=7))
+                    # Target crosshairs
+                    self.ax.plot([gx - 0.22, gx + 0.22], [gy, gy], color="#f87171", linewidth=0.9, zorder=7)
+                    self.ax.plot([gx, gx], [gy - 0.22, gy + 0.22], color="#f87171", linewidth=0.9, zorder=7)
+                    self.ax.text(gx, gy + 0.32, "🎯 TARGET", color="#f87171", fontsize=8, fontweight="bold", ha="center", zorder=8)
 
             # 7. Queued Multi-Waypoints (Futuristic Numbered Flags & Connections)
             for idx, (qx, qy) in enumerate(self.waypoint_queue):
