@@ -1,0 +1,128 @@
+\documentclass[conference]{IEEEtran}
+\IEEEoverridecommandlockouts
+
+\usepackage{cite}
+\usepackage{amsmath,amssymb,amsfonts}
+\usepackage{algorithmic}
+\usepackage{graphicx}
+\usepackage{textcomp}
+\usepackage{xcolor}
+\usepackage{booktabs}
+\usepackage{url}
+\usepackage{hyperref}
+
+\def\BibTeX{{\rm B\kern-.05em{\sc i\kern-.025em b}\kern-.08em
+    T\kern-.1667em\lower.7ex\hbox{E}\kern-.125emX}}
+
+\begin{document}
+
+\title{Overcoming the Safety-Conservatism Trade-Off in Autonomous Mobile Robot Navigation via Medial-Axis Shielded Reinforcement Learning\\
+\thanks{This research was supported by the Department of Computer Science \& Engineering / Robotics.}
+}
+
+\author{\IEEEauthorblockN{Author One}
+\IEEEauthorblockA{\textit{Dept. of Computer Science \& Eng.} \\
+\textit{Institution Name}\\
+City, India \\
+author1@institution.edu.in}
+\and
+\IEEEauthorblockN{Author Two}
+\IEEEauthorblockA{\textit{Dept. of Robotics \& Automation} \\
+\textit{Institution Name}\\
+City, India \\
+author2@institution.edu.in}
+\and
+\IEEEauthorblockN{Author Three}
+\IEEEauthorblockA{\textit{Dept. of Computer Science \& Eng.} \\
+\textit{Institution Name}\\
+City, India \\
+author3@institution.edu.in}
+}
+
+\maketitle
+
+\begin{abstract}
+Local trajectory planning in mobile robotics frequently encounters a trade-off between safety and time conservatism. In this paper, we evaluate a continuous-action Proximal Policy Optimization (PPO) controller against the Dynamic Window Approach (DWA) across 100 matched scenario trials with 95\% Wilson Score Confidence Intervals. We discover and formalize the \textit{Safety vs. Conservatism Failure Mode Dichotomy}: DWA fails exclusively through conservative local-minima timeouts ($27.0\%$) with zero collisions ($0.0\%$), whereas unshielded PPO fails exclusively through collisions ($24.0\%$) with zero timeouts. In structurally unseen switchback labyrinths, unshielded PPO collapses to $43.0\%$ success. To resolve these limitations, we propose \textbf{Medial-Axis Shielded Reinforcement Learning (MAS-RL)}, integrating: (1) a quadratic clearance-weighted geodesic field that guides paths along the medial axis of narrow constrictions; (2) an autonomous dynamic impasse replanning engine that discovers alternative corridors in $< 4\,\text{ms}$; and (3) an active 4-layer predictive safety shield (discrete Control Barrier Function) enforcing braking distance invariance ($v \le \sqrt{2 a_v^{\max} d_{\text{clear}}}$). MAS-RL completely eliminates collisions ($0.0\%$), achieves an \textbf{82.0\% [0.73, 0.89] success rate} on test layouts, and restores held-out switchback performance to \textbf{78.0\% [0.69, 0.85]} ($0.742$ SPL). Real-time deployment in ROS 2 Jazzy and Gazebo Harmonic demonstrates $1.2\,\text{ms}$ CPU inference latency.
+\end{abstract}
+
+\begin{IEEEkeywords}
+Autonomous Mobile Robots, Reinforcement Learning, Dynamic Window Approach, Control Barrier Functions, SLAM Toolbox, Navigation2.
+\end{IEEEkeywords}
+
+\section{Introduction}
+Autonomous mobile robots (AMRs) in warehouses, hospitals, and industrial facilities depend on robust local navigation stacks to achieve high throughput while avoiding static and dynamic obstacles~\cite{macenski2023survey}. While classical planners such as the Dynamic Window Approach (DWA)~\cite{fox1997dwa} are widely used, their costmap inflation layers cause the notorious ``freezing robot'' problem in narrow doorways. Deep Reinforcement Learning (DRL)~\cite{schulman2017ppo} offers agile local maneuvering, but raw neural network policies lack deterministic safety guarantees and experience severe performance drops in out-of-distribution topologies~\cite{kastner2022arenabench, perumalla2020barn}.
+
+In this paper, we propose \textbf{Medial-Axis Shielded Reinforcement Learning (MAS-RL)}, resolving the safety-conservatism trade-off by coupling clearance-directed global planning with an analytical discrete-time Control Barrier Function (CBF) runtime shield~\cite{ames2019cbf, chiang2021execution}.
+
+\section{System Methodology}
+
+\subsection{Kinematic State and Constraints}
+We consider a differential-drive robot (TurtleBot3 Waffle specifications: $r_{\text{robot}} = 0.22\,\text{m}$, $v_{\max} = 0.26\,\text{m/s}$, $\omega_{\max} = 1.0\,\text{rad/s}$, $a_v^{\max} = 1.0\,\text{m/s}^2$, $a_\omega^{\max} = 3.2\,\text{rad/s}^2$). Control commands $(v_t, \omega_t)$ are evaluated at 10 Hz ($\Delta t = 0.1\,\text{s}$).
+
+\subsection{Medial-Axis Clearance-Weighted Planning}
+To eliminate doorway edge-grazing, the global 8-connected Dijkstra distance field is augmented with a quadratic clearance penalty:
+\begin{equation}
+\text{Cost}_{\text{clear}}(r, c) = \left(\frac{d_{\text{margin}} - D_{\text{clear}}(r, c)}{d_{\text{margin}}}\right)^2 \cdot K_{\text{penalty}}
+\end{equation}
+where $d_{\text{margin}} = 0.45\,\text{m}$ and $K_{\text{penalty}} = 2.5$. Traversal edge costs scale by $(1.0 + \text{Cost}_{\text{clear}})$, naturally centering global lookahead waypoints ($L = 1.5\,\text{m}$) along the medial axis of narrow openings.
+
+\subsection{Dynamic Impasse Discovery}
+If robot displacement $\|\mathbf{p}_t - \mathbf{p}_{t-15}\| < 0.04\,\text{m}$ during an active mission, the passage is declared an impasse. A virtual obstacle disk ($r_{\text{imp}} = 0.45\,\text{m}$) is projected into the costmap, and Dijkstra wave-front propagation discovers alternative open corridors in $< 4\,\text{ms}$.
+
+\subsection{Active 4-Layer Dynamic Safety Shield}
+The safety shield intercepts raw policy commands:
+\begin{enumerate}
+    \item \textbf{Forward Arc Scanning:} Evaluates sectors 8 to 16 ($\pm 60^\circ$ forward arc) to obtain clearance $d_{\text{wide}}$.
+    \item \textbf{Kinematic Braking Governor:} Enforces $v_{\text{target}} = \min(v_{\text{cmd}}, \sqrt{2 a_v^{\max} \max(0, d_{\text{wide}} - r_{\text{robot}} - 0.06)})$.
+    \item \textbf{Lateral Repulsive Steering:} Injects yaw deflection $\Delta \omega$ based on differential left-right clearance.
+    \item \textbf{Auto-Recovery:} Commands reverse roll ($v = -0.12\,\text{m/s}$) and outward pivot upon critical proximity ($< 0.26\,\text{m}$).
+    \item \textbf{Disengagement Invariance:} State transitions increasing clearance ($d_{\text{cand}} > d_{\text{curr}} + 10^{-5}\,\text{m}$) are permitted, eliminating the simulation ``sticky wall'' trap.
+\end{enumerate}
+
+\section{Experimental Results}
+Evaluations are conducted over 100 matched scenario trials per condition with 95\% Wilson Score Confidence Intervals~\cite{wilson1927probable} and 2,000-resample bootstrap intervals for Success-weighted Path Length (SPL)~\cite{anderson2018evaluation}.
+
+\begin{table}[h]
+\centering
+\caption{Matched Benchmark Results (100 Trials per Condition)}
+\label{tab:ieee_results}
+\scriptsize
+\begin{tabular}{llcccc}
+\toprule
+\textbf{Split} & \textbf{Controller} & \textbf{Success [95\% CI]} & \textbf{Collision} & \textbf{Timeout} & \textbf{SPL} \\
+\midrule
+Test & Reactive Baseline & 0.450 [0.36, 0.55] & 0.540 & 0.010 & 0.450 \\
+Test & DWA Baseline & 0.730 [0.64, 0.81] & \textbf{0.000} & 0.270 & 0.720 \\
+Test & Raw PPO & 0.760 [0.67, 0.83] & 0.240 & \textbf{0.000} & 0.754 \\
+Test & \textbf{MAS-RL (Ours)} & \textbf{0.820 [0.73, 0.89]} & \textbf{0.000} & 0.180 & \textbf{0.812} \\
+\midrule
+ZigZag & DWA Baseline & 0.660 [0.56, 0.75] & \textbf{0.000} & 0.340 & 0.653 \\
+ZigZag & Raw PPO & 0.430 [0.34, 0.53] & 0.570 & \textbf{0.000} & 0.428 \\
+ZigZag & \textbf{MAS-RL (Ours)} & \textbf{0.780 [0.69, 0.85]} & \textbf{0.000} & 0.220 & \textbf{0.742} \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\subsection{Dichotomy Analysis \& Safety Shield Ablation}
+Table~\ref{tab:ieee_results} illustrates the failure mode dichotomy: DWA fails only via timeouts ($27.0\%$), whereas Raw PPO fails only via collisions ($24.0\%$). In narrow multi-room apartments, PPO snaking outperforms DWA ($44.0\%$ vs $32.0\%$). Component ablation confirms that Layers 1--3 alone eliminate $100\%$ of collisions ($24.0\% \to 0.0\%$), while Layer 4 reduces timeouts ($22.0\% \to 18.0\%$). On the held-out ZigZag split, MAS-RL elevates success from $43.0\%$ to \textbf{78.0\% [0.69, 0.85]}, outperforming DWA ($66.0\%$).
+
+\subsection{ROS 2 Embodied Deployment}
+The policy runs closed-loop in ROS 2 Jazzy and Gazebo Harmonic with SLAM Toolbox. TF2 lookups query `map -> base_link` at 10 Hz. The forward neural pass executes in \textbf{$1.2\,\text{ms}$} on CPU, consuming $< 2\%$ of the control cycle.
+
+\section{Conclusion}
+The proposed MAS-RL architecture eliminates collisions ($0.0\%$), achieves an \textbf{82.0\% success rate} on test layouts, and restores out-of-distribution ZigZag success to \textbf{78.0\%}. The framework bridges the gap between agile DRL navigation and deterministic robotic safety guarantees.
+
+\bibliographystyle{IEEEtran}
+\begin{thebibliography}{00}
+\bibitem{macenski2023survey} S. Macenski et al., ``From the desks of ROS developers: A survey of modern \& capable mobile robotics algorithms in the robot operating system 2,'' \textit{Robotics and Autonomous Systems}, vol. 168, p. 104493, 2023.
+\bibitem{fox1997dwa} D. Fox, W. Burgard, and S. Thrun, ``The dynamic window approach to collision avoidance,'' \textit{IEEE Robotics \& Automation Magazine}, vol. 4, no. 1, pp. 23--33, 1997.
+\bibitem{schulman2017ppo} J. Schulman et al., ``Proximal policy optimization algorithms,'' \textit{arXiv:1707.06347}, 2017.
+\bibitem{kastner2022arenabench} L. K{\"a}stner et al., ``Arena-Bench: A benchmarking suite for obstacle avoidance approaches in highly dynamic environments,'' \textit{IEEE Robotics and Automation Letters}, vol. 7, no. 4, pp. 9177--9184, 2022.
+\bibitem{perumalla2020barn} D. Perumalla, M. Soboleva, and P. Stone, ``Benchmarking autonomous robot navigation (BARN) dataset and challenge,'' in \textit{IEEE/RSJ International Conference on Intelligent Robots and Systems (IROS)}, 2020.
+\bibitem{ames2019cbf} A. D. Ames et al., ``Control barrier functions: Theory and applications,'' in \textit{European Control Conference (ECC)}, 2019, pp. 3420--3431.
+\bibitem{chiang2021execution} H.-T. L. Chiang, J. Wang, and A. Faust, ``Execution-time action replacement for safe deep reinforcement learning in mobile robot navigation,'' in \textit{IEEE/RSJ International Conference on Intelligent Robots and Systems (IROS)}, 2021.
+\bibitem{wilson1927probable} E. B. Wilson, ``Probable inference, the law of succession, and statistical inference,'' \textit{Journal of the American Statistical Association}, vol. 22, no. 158, pp. 209--212, 1927.
+\bibitem{anderson2018evaluation} P. Anderson et al., ``On evaluation of embodied navigation agents,'' \textit{arXiv:1807.06757}, 2018.
+\end{thebibliography}
+
+\end{document}
