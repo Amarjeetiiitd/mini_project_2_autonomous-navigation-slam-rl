@@ -105,6 +105,11 @@ class AutonomousNavApp:
         self.spl_metric = 0.0
         self.target_dist = 0.0
         self.fps_counter = 30.0
+        self.reroute_count = 0
+        self.rotation_stuck_steps = 0
+        self.last_rotation_pos = None
+        self.deadlock_breakouts = 0
+        self.max_deadlock_steps = 60
 
         # Load PPO Model and Controllers
         self.controllers = {}
@@ -119,13 +124,21 @@ class AutonomousNavApp:
         # Keyboard Shortcuts
         self.bind_keyboard_shortcuts()
 
+        # Initial HUD Telemetry Refresh
+        self.update_telemetry_hud()
+
         # Start GUI Update Loop
         self.last_frame_time = time.time()
         self.root.protocol("WM_DELETE_WINDOW", self.on_close)
-        self.root.after(30, self.simulation_step_loop)
+        self._after_id = self.root.after(30, self.simulation_step_loop)
 
     def on_close(self):
         self.is_running = False
+        if hasattr(self, "_after_id") and self._after_id:
+            try:
+                self.root.after_cancel(self._after_id)
+            except Exception:
+                pass
         try:
             plt.close(self.fig)
         except Exception:
@@ -184,6 +197,10 @@ class AutonomousNavApp:
         self.trajectory_history = [[sx, sy]]
         self.step_count = 0
         self.path_traversed = 0.0
+        self.rotation_stuck_steps = 0
+        self.last_rotation_pos = (sx, sy)
+        self.deadlock_breakouts = 0
+        self.reroute_count = 0
 
         self.active_target = None
         self.geodesic_field_map = None
@@ -199,6 +216,17 @@ class AutonomousNavApp:
         self.env.reset(options={"layout_seed": self.current_seed})
         self.env.rects = self.rects_arr
         self.env.pose = self.robot_pose.copy()
+
+        # Perform initial LiDAR raycast to populate true sensor clearance on startup
+        try:
+            angles_rel = self.env._angles
+            rays = self.env.scan_rays(angles_rel, noisy=False)
+            self.env._last_angles = angles_rel
+            self.env._last_ranges = rays
+            sector_ranges = rays.min(axis=1)
+            self.min_lidar_range = float(sector_ranges.min())
+        except Exception:
+            self.min_lidar_range = 3.5
 
     def bind_keyboard_shortcuts(self):
         self.root.bind("<space>", lambda e: self.toggle_navigation())
@@ -237,20 +265,43 @@ class AutonomousNavApp:
         self.is_running = False
         self.boundary_hold_count = 0
         self.last_boundary_hold_pos = None
-        self.btn_run.config(text="▶ START MISSION", bg="#059669")
+        self.rotation_stuck_steps = 0
+        self.deadlock_breakouts = 0
+        self.reroute_count = 0
+        self.btn_run.config(text="▶  START MISSION", bg="#059669")
         if len(self.trajectory_history) > 0:
             start_pos = self.trajectory_history[0]
             self.robot_pose[0] = start_pos[0]
             self.robot_pose[1] = start_pos[1]
             self.robot_pose[2] = 0.0
+        self.last_rotation_pos = (self.robot_pose[0], self.robot_pose[1])
         self.trajectory_history = [[self.robot_pose[0], self.robot_pose[1]]]
         self.path_traversed = 0.0
         self.step_count = 0
+        self.spl_metric = 0.0
         self.env.pose = self.robot_pose.copy()
+
+        try:
+            angles_rel = self.env._angles
+            rays = self.env.scan_rays(angles_rel, noisy=False)
+            self.env._last_angles = angles_rel
+            self.env._last_ranges = rays
+            sector_ranges = rays.min(axis=1)
+            self.min_lidar_range = float(sector_ranges.min())
+        except Exception:
+            pass
+
+        self.reset_all_controllers()
+
         if self.active_target is not None:
+            self.target_dist = math.hypot(self.active_target[0] - self.robot_pose[0], self.active_target[1] - self.robot_pose[1])
             self.plan_path_to_target(self.active_target[0], self.active_target[1])
+        else:
+            self.target_dist = 0.0
+
         self.update_status("Mission reset to starting coordinates.", "#38bdf8")
         self.redraw_canvas()
+        self.update_telemetry_hud()
 
     def build_user_interface(self):
         # Top Header Bar with Cyberpunk / High-Tech Theme
@@ -669,13 +720,21 @@ class AutonomousNavApp:
         elif mode == "set_robot":
             self.update_status("Relocate Robot Mode: Click anywhere on open space to teleport the robot!", "#c084fc")
 
+    def reset_all_controllers(self):
+        for name, ctrl in self.controllers.items():
+            if ctrl is not None and hasattr(ctrl, "reset"):
+                try:
+                    ctrl.reset(self.env)
+                except Exception:
+                    pass
+
     def on_controller_change(self):
         ctrl = self.ctrl_var.get()
         self.active_controller_name = ctrl
         self.update_status(f"Switched active controller to {ctrl.upper()}", "#38bdf8")
-        if self.controllers.get(ctrl) is not None:
-            self.controllers[ctrl].reset(self.env)
+        self.reset_all_controllers()
         self.redraw_canvas()
+        self.update_telemetry_hud()
 
     def on_map_preset_change(self, event=None):
         idx = self.map_combobox.current()
@@ -692,8 +751,10 @@ class AutonomousNavApp:
         self.is_running = False
         self.btn_run.config(text="▶  START MISSION", bg="#059669")
         self.setup_environment()
+        self.reset_all_controllers()
         self.update_status(f"Loaded {self.active_family.upper()} layout (Seed {self.current_seed})", "#38bdf8")
         self.redraw_canvas()
+        self.update_telemetry_hud()
 
     def on_canvas_click(self, event):
         if event.xdata is None or event.ydata is None:
@@ -775,9 +836,19 @@ class AutonomousNavApp:
         self.completed_waypoints.clear()
         self.boundary_hold_count = 0
         self.last_boundary_hold_pos = None
+        self.rotation_stuck_steps = 0
+        self.last_rotation_pos = (self.robot_pose[0], self.robot_pose[1])
+        self.deadlock_breakouts = 0
+        self.reroute_count = 0
+        self.step_count = 0
+        self.path_traversed = 0.0
+        self.spl_metric = 0.0
+        self.target_dist = math.hypot(x - self.robot_pose[0], y - self.robot_pose[1])
         self.active_target = (x, y)
+        self.reset_all_controllers()
         self.plan_path_to_target(x, y)
         self.redraw_canvas()
+        self.update_telemetry_hud()
 
     def add_waypoint_to_queue(self, x: float, y: float):
         self.waypoint_queue.append((x, y))
@@ -785,6 +856,7 @@ class AutonomousNavApp:
             self.pop_next_waypoint()
         self.update_status(f"Waypoint #{len(self.waypoint_queue) + len(self.completed_waypoints)} queued at ({x:.2f}, {y:.2f})", "#34d399")
         self.redraw_canvas()
+        self.update_telemetry_hud()
 
     def pop_next_waypoint(self):
         if not self.waypoint_queue:
@@ -792,13 +864,17 @@ class AutonomousNavApp:
             self.is_running = False
             self.btn_run.config(text="▶  START MISSION", bg="#059669")
             self.update_status("🎉 MISSION COMPLETE! All waypoints reached successfully!", "#34d399")
+            self.update_telemetry_hud()
             return False
 
         next_wp = self.waypoint_queue.pop(0)
         self.active_target = next_wp
+        self.target_dist = math.hypot(next_wp[0] - self.robot_pose[0], next_wp[1] - self.robot_pose[1])
+        self.reset_all_controllers()
         self.plan_path_to_target(next_wp[0], next_wp[1])
         self.is_running = True
         self.btn_run.config(text="⏸  PAUSE MISSION", bg="#d97706")
+        self.update_telemetry_hud()
         return True
 
     def teleport_robot(self, x: float, y: float):
@@ -813,13 +889,34 @@ class AutonomousNavApp:
         self.trajectory_history = [[x, y]]
         self.path_traversed = 0.0
         self.step_count = 0
+        self.spl_metric = 0.0
+        self.rotation_stuck_steps = 0
+        self.last_rotation_pos = (x, y)
+        self.deadlock_breakouts = 0
+        self.reroute_count = 0
         self.env.pose = self.robot_pose.copy()
 
+        try:
+            angles_rel = self.env._angles
+            rays = self.env.scan_rays(angles_rel, noisy=False)
+            self.env._last_angles = angles_rel
+            self.env._last_ranges = rays
+            sector_ranges = rays.min(axis=1)
+            self.min_lidar_range = float(sector_ranges.min())
+        except Exception:
+            pass
+
+        self.reset_all_controllers()
+
         if self.active_target is not None:
+            self.target_dist = math.hypot(self.active_target[0] - x, self.active_target[1] - y)
             self.plan_path_to_target(self.active_target[0], self.active_target[1])
+        else:
+            self.target_dist = 0.0
 
         self.update_status(f"Robot relocated to ({x:.2f} m, {y:.2f} m)", "#c084fc")
         self.redraw_canvas()
+        self.update_telemetry_hud()
 
     def snap_to_free_space(self, x: float, y: float, search_radius: float = 0.8) -> tuple[float, float]:
         # User retains exact millimeter coordinate for true precision placement
@@ -915,23 +1012,33 @@ class AutonomousNavApp:
         self.completed_waypoints.clear()
         self.boundary_hold_count = 0
         self.last_boundary_hold_pos = None
+        self.rotation_stuck_steps = 0
+        self.deadlock_breakouts = 0
         self.active_target = None
+        self.target_dist = 0.0
+        self.shortest_geo_len = 0.0
         self.is_running = False
         self.btn_run.config(text="▶  START MISSION", bg="#059669")
+        self.reset_all_controllers()
         self.update_status("Cleared waypoints. Click anywhere on the map to set a new target!", "#38bdf8")
         self.redraw_canvas()
+        self.update_telemetry_hud()
 
     def clear_custom_obstacles(self):
         self.custom_obstacles.clear()
         self.boundary_hold_count = 0
         self.last_boundary_hold_pos = None
+        self.rotation_stuck_steps = 0
+        self.deadlock_breakouts = 0
         self.rects = list(self.world.rects)
         self.rects_arr = np.array(self.rects)
         self.env.rects = self.rects_arr
+        self.reset_all_controllers()
         if self.active_target is not None:
             self.plan_path_to_target(self.active_target[0], self.active_target[1])
         self.update_status("Cleared all custom obstacle blocks.", "#38bdf8")
         self.redraw_canvas()
+        self.update_telemetry_hud()
 
     def toggle_navigation(self):
         if self.active_target is None and not self.waypoint_queue:
@@ -988,7 +1095,7 @@ class AutonomousNavApp:
 
         try:
             if self.root.winfo_exists():
-                self.root.after(30, self.simulation_step_loop)
+                self._after_id = self.root.after(30, self.simulation_step_loop)
         except Exception:
             pass
 
@@ -1019,6 +1126,8 @@ class AutonomousNavApp:
             self.completed_waypoints.append(self.active_target)
             self.current_v = 0.0
             self.current_w = 0.0
+            self.rotation_stuck_steps = 0
+            self.deadlock_breakouts = 0
             has_next = self.pop_next_waypoint()
             if not has_next:
                 self.is_running = False
@@ -1028,6 +1137,56 @@ class AutonomousNavApp:
                 else:
                     self.update_status(f"🎯 GOAL REACHED: Arrived at destination ({gx:.2f} m, {gy:.2f} m)!", "#34d399")
                 return
+
+        # 1b. Global Mission Horizon Timeout (700 steps = 70.0 seconds at 10 Hz)
+        if self.step_count >= C.MAX_STEPS:
+            self.current_v = 0.0
+            self.current_w = 0.0
+            self.is_running = False
+            self.btn_run.config(text="▶  START MISSION", bg="#059669")
+            self.safety_status_lbl.config(
+                text=f"⏱️ MISSION TIMEOUT: Limit reached ({C.MAX_STEPS * C.DT:.1f} s / {C.MAX_STEPS} steps)",
+                fg="#f87171",
+                bg="#7f1d1d",
+            )
+            self.update_status(
+                f"⏱️ MISSION TIMEOUT: Reached {C.MAX_STEPS * C.DT:.1f} s limit ({C.MAX_STEPS} steps). Destination not reached in time.",
+                "#ef4444"
+            )
+            return
+
+        # 1c. In-Place Rotation & Local Minima Deadlock Monitor
+        if not hasattr(self, "last_rotation_pos") or self.last_rotation_pos is None:
+            self.last_rotation_pos = (rx, ry)
+            self.rotation_stuck_steps = 0
+            self.deadlock_breakouts = 0
+
+        anchor_disp = math.hypot(rx - self.last_rotation_pos[0], ry - self.last_rotation_pos[1])
+        if anchor_disp < 0.15 and dist_to_goal > effective_tolerance:
+            if abs(self.current_w) > 0.10 or abs(self.current_v) < 0.04:
+                self.rotation_stuck_steps += 1
+        else:
+            self.last_rotation_pos = (rx, ry)
+            self.rotation_stuck_steps = max(0, self.rotation_stuck_steps - 2)
+            self.deadlock_breakouts = 0
+
+        # Tier 2 Deadlock Halt: If spinning/stuck in place for >= 60 steps (6.0 s)
+        if self.rotation_stuck_steps >= getattr(self, "max_deadlock_steps", 60):
+            self.current_v = 0.0
+            self.current_w = 0.0
+            self.is_running = False
+            self.btn_run.config(text="▶  START MISSION", bg="#059669")
+            self.safety_status_lbl.config(
+                text="⚠️ DEADLOCK HALT: Persistent rotation (>6.0s). Halted safely.",
+                fg="#f87171",
+                bg="#7f1d1d",
+            )
+            self.update_status(
+                "⚠️ DEADLOCK HALT: Robot caught rotating at obstacle boundary for > 6.0s without forward progress. Halted safely. Please relocate robot or set an open target.",
+                "#ef4444"
+            )
+            self.rotation_stuck_steps = 0
+            return
 
         # 2. Extract Lookahead Waypoint from Geodesic Field with Line-of-Sight Check
         lookahead_target = np.array([gx, gy])
@@ -1049,6 +1208,15 @@ class AutonomousNavApp:
         sector_ranges = rays.min(axis=1)
         self.min_lidar_range = float(sector_ranges.min())
 
+        # Tier 1 Deadlock Breakout: If stuck spinning for 25 steps (2.5 s), trigger reverse escape
+        if self.rotation_stuck_steps == 25 and not self.recovery_mode:
+            self.recovery_mode = True
+            self.recovery_steps = 15
+            closest_idx = int(np.argmin(sector_ranges))
+            self.recovery_direction = -1.0 if closest_idx >= 12 else 1.0
+            self.deadlock_breakouts += 1
+            self.update_status("🔄 DEADLOCK DETECTED: Executing reverse escape breakout...", "#fbbf24")
+
         if self.slam_exploration_mode.get():
             self.update_slam_map(rx, ry, rth, sector_ranges)
 
@@ -1059,6 +1227,10 @@ class AutonomousNavApp:
         # 5. Query Active Controller
         ctrl_name = self.active_controller_name
         v_target, w_target = 0.0, 0.0
+
+        # Synchronize environment pose and goal
+        self.env.pose = self.robot_pose.copy()
+        self.env.goal = lookahead_target.copy()
 
         if ctrl_name == "ppo_shielded" and self.controllers.get("ppo_shielded") is not None:
             action = self.controllers["ppo_shielded"].act(self.env, obs)
@@ -1125,21 +1297,22 @@ class AutonomousNavApp:
                     if self.recovery_steps <= 0:
                         self.recovery_mode = False
                         self.update_status("Mission resumed on clear path.", "#34d399")
+                elif not rear_blocked and min_front_range < C.ROBOT_RADIUS + 0.06:
+                    # Obstacle directly ahead: reverse into clear rear space first!
+                    v_target = -0.12
+                    w_target = 0.85 * self.recovery_direction
+                    self.safety_status_lbl.config(
+                        text=f"🔄 AUTO-RECOVERY: Backing away ({self.recovery_steps})",
+                        fg="#fbbf24",
+                        bg="#78350f",
+                    )
                 elif abs(rel_wpt_ang) >= math.radians(25):
-                    # Turn in place toward the open lookahead waypoint
+                    # Front has clearance: turn in place toward the open lookahead waypoint
                     v_target = 0.0
                     turn_dir = 1.0 if rel_wpt_ang > 0 else -1.0
                     w_target = 0.95 * turn_dir
                     self.safety_status_lbl.config(
                         text=f"🔄 ALIGNING: Turning toward path ({self.recovery_steps})",
-                        fg="#fbbf24",
-                        bg="#78350f",
-                    )
-                elif not rear_blocked and min_front_range < C.ROBOT_RADIUS + 0.05:
-                    v_target = -0.10
-                    w_target = 0.85 * self.recovery_direction
-                    self.safety_status_lbl.config(
-                        text=f"🔄 AUTO-RECOVERY: Backing away ({self.recovery_steps})",
                         fg="#fbbf24",
                         bg="#78350f",
                     )
@@ -1624,8 +1797,9 @@ class AutonomousNavApp:
                 self.hud_cards["dist_metric"].config(text="0.00 m")
 
             self.hud_cards["wp_queue"].config(text=f"{len(self.waypoint_queue)} Queued | {len(self.completed_waypoints)} Done")
-            if self.reroute_count > 0:
-                self.hud_cards["route_status"].config(text=f"Alternative #{self.reroute_count} (Bypassed)", fg="#fbbf24")
+            reroute_cnt = getattr(self, "reroute_count", 0)
+            if reroute_cnt > 0:
+                self.hud_cards["route_status"].config(text=f"Alternative #{reroute_cnt} (Bypassed)", fg="#fbbf24")
             else:
                 self.hud_cards["route_status"].config(text="Optimal Direct", fg="#34d399")
             self.hud_cards["robot_pose"].config(text=f"X:{rx:.2f}m Y:{ry:.2f}m θ:{math.degrees(rth):.1f}°")
@@ -1654,7 +1828,8 @@ class AutonomousNavApp:
             self.hud_cards["spl_metric"].config(text=f"{self.spl_metric:.3f}")
             self.hud_cards["time_metric"].config(text=f"{self.step_count} steps ({self.step_count * C.DT:.1f} s)")
         except Exception:
-            pass
+            import traceback
+            traceback.print_exc()
 
 
 def launch_interactive_ui():
