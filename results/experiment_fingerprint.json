@@ -1,9 +1,10 @@
 {
-  "fingerprint_version": "2.0",
-  "config_hash": "4c1aeea987b008670367a607f53d402f1780330df1da8ad014ec69e53530b930",
-  "git_commit": "8e58c33a9593872ed02f161532115ae797492420",
-  "git_dirty": true,
-  "timestamp_utc": "2026-11-12T09:45:07.987739+00:00",
+  "fingerprint_version": "2.1",
+  "config_hash": "c1c59075a2ba0d616ee70b8ef1d9b006b0f7577b888788dfc1a45c7c8db3f8b6",
+  "git_commit": "c0dae4c324b1e90a20ccdbe9449fb979076e20ac",
+  "git_dirty": false,
+  "scenario_seed": 0,
+  "timestamp_utc": "2026-11-12T11:53:05.565530+00:00",
   "model_path": "models/ppo_navigation.zip",
   "model_sha256": "0b1437389114ac2c971d2e3d60147d39755cdc12a355d4fbfb4f20d7564124bc",
   "episodes_per_condition": 100,
@@ -36,8 +37,8 @@
     "heldout": 100
   },
   "manifest_hashes": {
-    "test": "f5364e34a4fe71eedaba8de318d1b195f191936cea7a729726b1ed2a08b889c9",
-    "heldout": "fd4fe00d0d289fd692fa02fcdfbd14d7772aaa0c9dec382473755d69be05b392"
+    "test": "b5d6ffc0feec6cf026d6f2a949e10413806b3f9415608798dd469a3ba4d39db8",
+    "heldout": "beed7ebd037d124fed62a74bfdc1c74af9c9e5a46ea49f594acec24f691aa209"
   },
   "robot_kinematics": {
     "robot_radius": 0.22,
@@ -50,10 +51,25 @@
     "range_max": 3.5
   },
   "safety_config": {
-    "reaction_time_s": 0.15,
-    "max_recovery_attempts": 4,
+    "centering_gain": 1.15,
+    "corridor_detect_dist": 0.65,
+    "enable_angular_slew_rate": false,
+    "enable_centering": true,
+    "enable_governor": true,
+    "enable_recovery": true,
+    "flank_repulse_dist": 0.45,
+    "forward_coverage_min": 0.5,
+    "max_angular_accel": 3.2,
+    "max_linear_accel": 1.0,
+    "max_recovery_attempts": 4.0,
     "min_sensor_coverage": 0.5,
-    "forward_coverage_min": 0.5
+    "reaction_time": 0.15,
+    "recovery_duration": 8.0,
+    "reverse_speed": -0.1,
+    "robot_radius": 0.22,
+    "stagnation_disp_threshold": 0.04,
+    "stagnation_history_len": 15.0,
+    "stop_distance_margin": 0.04
   },
   "dependency_versions": {
     "python": "3.13.5",
