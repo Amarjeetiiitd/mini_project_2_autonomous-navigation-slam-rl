@@ -69,32 +69,23 @@ def build_observation(sector_ranges, goal_dist: float, goal_angle: float,
 
 def action_to_cmd(action) -> tuple[float, float]:
     """Policy action -> (v [m/s], w [rad/s]).
-    Standard policy action a[0] in [-1, 1] maps linearly to v in [0, V_MAX].
-    Extended recovery actions a[0] in [-2, -1) map to reverse v in [-0.15, 0.0] m/s.
+    Standard policy action a in [-1, 1]^2 maps linearly to v in [0, V_MAX], w in [-W_MAX, W_MAX].
+    Clips strictly within [-1.0, 1.0] to enforce the declared Gymnasium action space contract.
     """
     a = np.asarray(action, dtype=np.float64)
-    a0 = float(a[0])
+    a0 = float(np.clip(a[0], -1.0, 1.0))
     a1 = float(np.clip(a[1], -1.0, 1.0))
-    if a0 >= -1.0:
-        a0 = min(a0, 1.0)
-        v = (a0 + 1.0) / 2.0 * C.V_MAX
-    else:
-        # Extended reverse range: a0 in [-2, -1] -> v in [-0.15, 0]
-        a0 = max(a0, -2.0)
-        v = (a0 + 1.0) * 0.15
+    v = (a0 + 1.0) / 2.0 * C.V_MAX
     return float(v), float(a1 * C.W_MAX)
 
 
 def cmd_to_action(v: float, w: float) -> np.ndarray:
-    """Velocity commands (v, w) -> policy/environment action.
-    v >= 0 maps to a0 in [-1, 1].
-    v < 0 maps to extended action a0 in [-2, -1).
+    """Velocity commands (v, w) -> policy action in standard Box(-1.0, 1.0, (2,)).
+    Clamped strictly to [-1, 1] to preserve Gymnasium action space contract.
+    Forward velocities map linearly from [0, V_MAX] to [-1, 1].
+    Any non-positive velocity maps to -1.0 (zero forward throttle).
     """
-    if v >= 0.0:
-        a0 = np.clip(2.0 * v / C.V_MAX - 1.0, -1.0, 1.0)
-    else:
-        # Reverse velocity in [-0.15, 0) maps to [-2, -1)
-        a0 = np.clip(-1.0 + v / 0.15, -2.0, -1.0)
+    a0 = np.clip(2.0 * max(0.0, v) / C.V_MAX - 1.0, -1.0, 1.0)
     a1 = np.clip(w / C.W_MAX, -1.0, 1.0)
     return np.array([a0, a1], dtype=np.float32)
 

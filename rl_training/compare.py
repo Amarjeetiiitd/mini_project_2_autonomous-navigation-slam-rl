@@ -42,6 +42,8 @@ def main() -> None:
     ap.add_argument("--conditions", nargs="+", default=list(C.CONDITIONS))
     ap.add_argument("--seed", type=int, default=0)
     ap.add_argument("--out-dir", default="results")
+    ap.add_argument("--merge-existing", action="store_true", default=True,
+                    help="Preserve existing (split, condition, controller) runs from compare_episodes.csv")
     a = ap.parse_args()
 
     out = Path(a.out_dir)
@@ -53,11 +55,23 @@ def main() -> None:
         controllers.append(("ppo_governor", GovernorPPOController(ppo.model), {"goal_mode": mode}))
         controllers.append(("mas_rl", MASRLController(ppo.model), {"goal_mode": mode}))
 
+    existing_df = None
+    if a.merge_existing and (out / "compare_episodes.csv").exists():
+        existing_df = pd.read_csv(out / "compare_episodes.csv")
+
     frames = []
     for split in a.splits:
         scns = make_scenarios(a.episodes, split, a.seed)
         for cond in a.conditions:
             for name, ctrl, kw in controllers:
+                if existing_df is not None and not existing_df.empty:
+                    match = existing_df[(existing_df.split == split) & 
+                                        (existing_df.condition == cond) & 
+                                        (existing_df.controller == name)]
+                    if len(match) >= a.episodes:
+                        print(f"[{split}/{cond}] {name} already has {len(match)} episodes; skipping.", flush=True)
+                        frames.append(match.iloc[:a.episodes].copy())
+                        continue
                 print(f"[{split}/{cond}] {name} ...", flush=True)
                 df = evaluate_controller(ctrl, scns, {**kw, **C.CONDITIONS[cond]}, label=name)
                 df["split"], df["condition"] = split, cond

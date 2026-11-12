@@ -132,8 +132,8 @@ class NavEnv(gym.Env):
         return build_observation(rays.min(axis=1), d, a, self.v, self.w)
 
     # ----------------------------------------------------------- dynamics
-    def step(self, action):
-        v_t, w_t = action_to_cmd(action)
+    def step_cmd(self, v_t: float, w_t: float):
+        """Execute physical velocity commands (v_t [m/s], w_t [rad/s]) directly with acceleration limits."""
         dv, dw = C.A_V_MAX * C.DT, C.A_W_MAX * C.DT
         self.v = float(np.clip(v_t, self.v - dv, self.v + dv))
         self.w = float(np.clip(w_t, self.w - dw, self.w + dw))
@@ -162,6 +162,11 @@ class NavEnv(gym.Env):
             reward += C.R_COLLISION
         return obs, float(reward), bool(success or collided), bool(truncated), \
             self._info(success, collided, truncated)
+
+    def step(self, action):
+        """Gymnasium standard step interface: action in Box(-1.0, 1.0, (2,))."""
+        v_t, w_t = action_to_cmd(action)
+        return self.step_cmd(v_t, w_t)
 
     def _info(self, success: bool, collided: bool, timeout: bool) -> dict:
         done = success or collided or timeout

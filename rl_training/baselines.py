@@ -34,11 +34,15 @@ class Controller:
     def act(self, env: NavEnv, obs: np.ndarray) -> np.ndarray:
         raise NotImplementedError
 
+    def act_cmd(self, env: NavEnv, obs: np.ndarray) -> tuple[float, float]:
+        """Direct physical velocity command interface (v [m/s], w [rad/s])."""
+        return action_to_cmd(self.act(env, obs))
+
 
 class ReactiveController(Controller):
     name = "reactive"
 
-    def act(self, env, obs):
+    def act_cmd(self, env, obs) -> tuple[float, float]:
         s = obs[:C.N_SECTORS] * C.RANGE_MAX
         _, ang = env.goal_rel(direct=True)
         front = float(s[11:14].min())
@@ -49,6 +53,10 @@ class ReactiveController(Controller):
         else:
             w = float(np.clip(2.0 * ang, -C.W_MAX, C.W_MAX))
             v = C.V_MAX * max(math.cos(ang), 0.0) * min(1.0, front / 1.5)
+        return float(v), float(w)
+
+    def act(self, env, obs):
+        v, w = self.act_cmd(env, obs)
         return cmd_to_action(v, w)
 
 
@@ -58,7 +66,7 @@ class DWAController(Controller):
     def __init__(self, horizon_steps: int = 15, n_v: int = 5, n_w: int = 15):
         self.T, self.n_v, self.n_w = horizon_steps, n_v, n_w
 
-    def act(self, env, obs):
+    def act_cmd(self, env, obs) -> tuple[float, float]:
         wp = env.waypoint_world(1.2)
         # waypoint in robot frame (believed pose)
         bx, by, bth = env.believed_pose
@@ -93,8 +101,12 @@ class DWAController(Controller):
         k = int(np.argmax(score))
         if score[k] < -1e5:  # boxed in: rotate on the spot toward more open side
             left = float(env._last_ranges[13:19].mean()); right = float(env._last_ranges[6:12].mean())
-            return cmd_to_action(0.0, C.W_MAX if left >= right else -C.W_MAX)
-        return cmd_to_action(V[k], Wm[k])
+            return 0.0, float(C.W_MAX if left >= right else -C.W_MAX)
+        return float(V[k]), float(Wm[k])
+
+    def act(self, env, obs):
+        v, w = self.act_cmd(env, obs)
+        return cmd_to_action(v, w)
 
 
 class PPOController(Controller):
@@ -103,6 +115,9 @@ class PPOController(Controller):
 
     def act(self, env, obs):
         return self.model.predict(obs, deterministic=True)[0]
+
+    def act_cmd(self, env, obs) -> tuple[float, float]:
+        return action_to_cmd(self.act(env, obs))
 
 
 class GovernorPPOController(Controller):
@@ -122,13 +137,17 @@ class GovernorPPOController(Controller):
     def reset(self, env):
         self.filter.reset()
 
-    def act(self, env, obs):
+    def act_cmd(self, env, obs) -> tuple[float, float]:
         raw_act = self.model.predict(obs, deterministic=True)[0]
         v, w = action_to_cmd(raw_act)
         sector_ranges = obs[:C.N_SECTORS] * C.RANGE_MAX
-        est_pose = getattr(env, "believed_pose", env.pose)[:2]
+        est_pose = env.believed_pose[:2] if hasattr(env, "believed_pose") else None
         safe_v, safe_w, _ = self.filter.filter_command(v, w, sector_ranges, estimated_pose=est_pose)
-        return cmd_to_action(max(0.0, safe_v), safe_w)
+        return float(safe_v), float(safe_w)
+
+    def act(self, env, obs) -> np.ndarray:
+        v, w = self.act_cmd(env, obs)
+        return cmd_to_action(v, w)
 
 
 class PPOBrakingSteeringController(Controller):
@@ -147,13 +166,17 @@ class PPOBrakingSteeringController(Controller):
     def reset(self, env):
         self.filter.reset()
 
-    def act(self, env, obs):
+    def act_cmd(self, env, obs) -> tuple[float, float]:
         raw_act = self.model.predict(obs, deterministic=True)[0]
         v, w = action_to_cmd(raw_act)
         sector_ranges = obs[:C.N_SECTORS] * C.RANGE_MAX
-        est_pose = getattr(env, "believed_pose", env.pose)[:2]
+        est_pose = env.believed_pose[:2] if hasattr(env, "believed_pose") else None
         safe_v, safe_w, _ = self.filter.filter_command(v, w, sector_ranges, estimated_pose=est_pose)
-        return cmd_to_action(max(0.0, safe_v), safe_w)
+        return float(safe_v), float(safe_w)
+
+    def act(self, env, obs) -> np.ndarray:
+        v, w = self.act_cmd(env, obs)
+        return cmd_to_action(v, w)
 
 
 class PPOBrakingRecoveryController(Controller):
@@ -172,13 +195,17 @@ class PPOBrakingRecoveryController(Controller):
     def reset(self, env):
         self.filter.reset()
 
-    def act(self, env, obs):
+    def act_cmd(self, env, obs) -> tuple[float, float]:
         raw_act = self.model.predict(obs, deterministic=True)[0]
         v, w = action_to_cmd(raw_act)
         sector_ranges = obs[:C.N_SECTORS] * C.RANGE_MAX
-        est_pose = getattr(env, "believed_pose", env.pose)[:2]
+        est_pose = env.believed_pose[:2] if hasattr(env, "believed_pose") else None
         safe_v, safe_w, _ = self.filter.filter_command(v, w, sector_ranges, estimated_pose=est_pose)
-        return cmd_to_action(safe_v, safe_w)
+        return float(safe_v), float(safe_w)
+
+    def act(self, env, obs) -> np.ndarray:
+        v, w = self.act_cmd(env, obs)
+        return cmd_to_action(v, w)
 
 
 class MASRLController(Controller):
@@ -201,13 +228,17 @@ class MASRLController(Controller):
     def reset(self, env):
         self.filter.reset()
 
-    def act(self, env, obs):
+    def act_cmd(self, env, obs) -> tuple[float, float]:
         raw_act = self.model.predict(obs, deterministic=True)[0]
         v, w = action_to_cmd(raw_act)
         sector_ranges = obs[:C.N_SECTORS] * C.RANGE_MAX
-        est_pose = getattr(env, "believed_pose", env.pose)[:2]
+        est_pose = env.believed_pose[:2] if hasattr(env, "believed_pose") else None
         safe_v, safe_w, _ = self.filter.filter_command(v, w, sector_ranges, estimated_pose=est_pose)
-        return cmd_to_action(safe_v, safe_w)
+        return float(safe_v), float(safe_w)
+
+    def act(self, env, obs) -> np.ndarray:
+        v, w = self.act_cmd(env, obs)
+        return cmd_to_action(v, w)
 
 
 # Backward-compatible aliases
@@ -220,8 +251,13 @@ def run_episode(env: NavEnv, ctrl: Controller, scenario=None, seed: int | None =
     obs, info = env.reset(seed=seed, options={"scenario": scenario} if scenario else None)
     ctrl.reset(env)
     traj = [env.pose.copy()] if record else None
+    has_act_cmd = hasattr(ctrl, "act_cmd")
     while True:
-        obs, _, term, trunc, info = env.step(ctrl.act(env, obs))
+        if has_act_cmd:
+            v_cmd, w_cmd = ctrl.act_cmd(env, obs)
+            obs, _, term, trunc, info = env.step_cmd(v_cmd, w_cmd)
+        else:
+            obs, _, term, trunc, info = env.step(ctrl.act(env, obs))
         if record:
             traj.append(env.pose.copy())
         if term or trunc:

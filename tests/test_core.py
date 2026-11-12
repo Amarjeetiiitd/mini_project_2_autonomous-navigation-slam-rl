@@ -248,3 +248,36 @@ def test_is_inside_obstacle_and_standoff():
     assert effective_tol > C.GOAL_TOLERANCE
 
 
+def test_gymnasium_action_space_contract_and_direct_cmd_step():
+    from pathlib import Path
+    from rl_training.nav_env import NavEnv
+    from rl_training.baselines import ReactiveController, DWAController, MASRLController
+    from rl_training.evaluate import load_policy
+
+    env = NavEnv()
+    obs, _ = env.reset(seed=42)
+
+    # 1. Classical and Safety Controllers must strictly obey Gymnasium Box(-1, 1, (2,))
+    rc = ReactiveController()
+    a_rc = rc.act(env, obs)
+    assert env.action_space.contains(a_rc), f"ReactiveController produced action {a_rc} outside action_space"
+
+    dwa = DWAController()
+    a_dwa = dwa.act(env, obs)
+    assert env.action_space.contains(a_dwa), f"DWAController produced action {a_dwa} outside action_space"
+
+    model_path = Path("models/ppo_navigation.zip")
+    if model_path.exists():
+        ppo, _ = load_policy(model_path)
+        mas = MASRLController(ppo.model)
+        a_mas = mas.act(env, obs)
+        assert env.action_space.contains(a_mas), f"MASRLController produced action {a_mas} outside action_space"
+
+    # 2. Direct velocity execution via step_cmd respects acceleration limits
+    obs_next, r, term, trunc, info = env.step_cmd(0.20, 0.5)
+    assert obs_next.shape == (C.OBS_DIM,)
+    assert env.v <= C.V_MAX
+    assert abs(env.w) <= C.W_MAX
+
+
+

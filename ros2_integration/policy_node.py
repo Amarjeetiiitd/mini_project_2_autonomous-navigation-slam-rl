@@ -76,6 +76,7 @@ class PolicyNode(Node):
         self.max_angular = min(P("max_angular", C.W_MAX).value, C.W_MAX)
         self.stop_distance = P("stop_distance", 0.28).value   # m, front sectors
         self.scan_timeout = P("scan_timeout", 0.5).value      # s
+        self.odom_timeout = P("odom_timeout", 0.5).value      # s
         self.goal_timeout = P("goal_timeout", 120.0).value    # s
         self.goal_tol = P("goal_tolerance", C.GOAL_TOLERANCE).value
         self.replan_period = P("replan_period", 2.0).value
@@ -95,6 +96,7 @@ class PolicyNode(Node):
         self.tf_buffer = Buffer()
         self.tf_listener = TransformListener(self.tf_buffer, self)
         self.scan_sectors, self.scan_stamp = None, 0.0
+        self.odom_stamp = 0.0
         self.v = self.w = 0.0
         self.goal = None            # np.array([x, y]) in global frame
         self.goal_t0 = 0.0
@@ -125,6 +127,7 @@ class PolicyNode(Node):
 
     def on_odom(self, msg: Odometry) -> None:
         self.v, self.w = msg.twist.twist.linear.x, msg.twist.twist.angular.z
+        self.odom_stamp = self.now_s()
 
     def on_goal(self, msg: PoseStamped) -> None:
         if msg.header.frame_id and msg.header.frame_id != self.global_frame:
@@ -195,6 +198,10 @@ class PolicyNode(Node):
         if self.scan_sectors is None or self.now_s() - self.scan_stamp > self.scan_timeout:
             self.publish_cmd(0.0, 0.0)
             self.get_logger().warn("no fresh /scan; holding", throttle_duration_sec=2.0)
+            return
+        if self.odom_stamp == 0.0 or self.now_s() - self.odom_stamp > self.odom_timeout:
+            self.publish_cmd(0.0, 0.0)
+            self.get_logger().warn("no fresh /odom; holding", throttle_duration_sec=2.0)
             return
         try:
             pose = self.robot_pose()

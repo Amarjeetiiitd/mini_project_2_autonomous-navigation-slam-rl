@@ -8,10 +8,10 @@ test,dwa_global,clutter,25,0.96,0.9373955438071345
 test,dwa_global,corridor,25,1.0,0.9799172229095674
 test,dwa_global,open,25,0.96,0.9452015841746154
 test,dwa_global,rooms,25,0.8,0.7812722432897174
-test,mas_rl,clutter,25,0.96,0.9394527412932885
+test,mas_rl,clutter,25,0.96,0.9394527412932887
 test,mas_rl,corridor,25,0.96,0.9439424428674905
 test,mas_rl,open,25,0.92,0.8976264048392575
-test,mas_rl,rooms,25,0.76,0.7437816506153445
+test,mas_rl,rooms,25,0.76,0.7437816506153446
 test,ppo_governor,clutter,25,0.96,0.930960531139893
 test,ppo_governor,corridor,25,1.0,0.9837343696706733
 test,ppo_governor,open,25,0.96,0.936424690724313
