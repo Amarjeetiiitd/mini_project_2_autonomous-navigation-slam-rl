@@ -1,0 +1,45 @@
+{
+  "timestamp_utc": "2026-11-12T07:22:19.452498+00:00",
+  "episodes_per_condition": 100,
+  "splits": [
+    "test",
+    "heldout"
+  ],
+  "conditions": [
+    "nominal",
+    "lidar_noise",
+    "loc_drift"
+  ],
+  "controllers": [
+    "reactive",
+    "dwa_global",
+    "ppo_waypoint",
+    "ppo_governor",
+    "mas_rl"
+  ],
+  "unique_layout_seeds": {
+    "test": 100,
+    "heldout": 100
+  },
+  "test_seeds_config": {
+    "start": 10000,
+    "end": 10099,
+    "count": 100
+  },
+  "heldout_seeds_config": {
+    "start": 20000,
+    "end": 20099,
+    "count": 100
+  },
+  "robot_kinematics": {
+    "robot_radius": 0.22,
+    "v_max": 0.26,
+    "w_max": 1.0,
+    "a_v_max": 1.0,
+    "a_w_max": 3.2,
+    "reaction_time_s": 0.15,
+    "max_recovery_attempts": 4,
+    "min_sensor_coverage": 0.5
+  },
+  "model_path": "models/ppo_navigation.zip"
+}

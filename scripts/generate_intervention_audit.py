@@ -54,6 +54,8 @@ def main():
             mean_rev = float(df["recovery_reverses"].mean())
             mean_piv = float(df["recovery_pivots"].mean())
             mean_spin = float(df["deadlock_spins"].mean())
+            mean_sensor = float(df.get("sensor_loss_stops", 0).mean()) if "sensor_loss_stops" in df else 0.0
+            mean_safe = float(df.get("safe_stops", 0).mean()) if "safe_stops" in df else 0.0
             mean_tot = float(df["total_interventions"].mean())
             mean_steps = float(df["steps"].mean())
             density = (mean_tot / mean_steps * 100.0) if mean_steps > 0 else 0.0
@@ -71,6 +73,8 @@ def main():
                 "recovery_reverses": round(mean_rev, 2),
                 "recovery_pivots": round(mean_piv, 2),
                 "deadlock_spins": round(mean_spin, 2),
+                "sensor_loss_stops": round(mean_sensor, 2),
+                "safe_stops": round(mean_safe, 2),
                 "total_interventions": round(mean_tot, 2),
                 "intervention_density_pct": round(density, 2),
             })
@@ -86,14 +90,14 @@ def main():
         "",
         "Breakdown of predictive safety filter layer activations per episode (Nominal condition, N=100 episodes per split):",
         "",
-        "| Split | Controller | Success Rate | Mean Steps | Governor Brakes | Centering | Flank Repulse | Recovery Rev | Recovery Pivot | Deadlock Spin | Total Interventions | Density (%) |",
-        "|---|---|---|---|---|---|---|---|---|---|---|---|",
+        "| Split | Controller | Success Rate | Mean Steps | Governor Brakes | Centering | Flank Repulse | Recovery Rev | Recovery Pivot | Deadlock Spin | Safe Stops | Total Interventions | Density (%) |",
+        "|---|---|---|---|---|---|---|---|---|---|---|---|---|",
     ]
     for r in rows:
         md.append(
             f"| {r['split']} | {r['controller']} | {r['success_rate']*100:.1f}% | {r['mean_steps']} | "
             f"{r['governor_brakes']} | {r['centering']} | {r['flank_repulsions']} | {r['recovery_reverses']} | "
-            f"{r['recovery_pivots']} | {r['deadlock_spins']} | {r['total_interventions']} | {r['intervention_density_pct']}% |"
+            f"{r['recovery_pivots']} | {r['deadlock_spins']} | {r['safe_stops']} | {r['total_interventions']} | {r['intervention_density_pct']}% |"
         )
     md_path = out_dir / "interventions_summary.md"
     md_path.write_text("\n".join(md) + "\n", encoding="utf-8")

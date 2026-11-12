@@ -40,17 +40,28 @@ def resample_scan(ranges, angle_min: float, angle_increment: float,
                   yaw_offset: float = 0.0) -> np.ndarray:
     """Reduce a sensor_msgs/LaserScan-style array to N_SECTORS minimum ranges (m).
 
-    NaN, +-inf, readings < range_min and readings > range_max are *invalid* and
-    ignored; a sector with no valid reading reports RANGE_MAX ("free").
+    Valid readings within [range_min, range_max] are mapped to angular sectors.
+    If the scan has no valid readings at all (sensor dropout/failure), returns an array
+    of NaNs so downstream safety filters trigger fail-safe stopping.
+    When valid readings exist, sectors without obstacle returns default to RANGE_MAX (free space).
     `yaw_offset` rotates scan angles into the base_link frame.
     """
     r = np.asarray(ranges, dtype=np.float64)
+    if r.size == 0 or not np.isfinite(r).any():
+        return np.full(C.N_SECTORS, np.nan)
+
     angles = angle_min + np.arange(r.size) * angle_increment + yaw_offset
     valid = np.isfinite(r) & (r >= range_min) & (r <= range_max)
+    if not valid.any():
+        # Distinguish genuine free space (+inf returns) from sensor error
+        inf_returns = np.isposinf(r)
+        if inf_returns.any():
+            return np.full(C.N_SECTORS, C.RANGE_MAX)
+        return np.full(C.N_SECTORS, np.nan)
+
     out = np.full(C.N_SECTORS, C.RANGE_MAX)
-    if valid.any():
-        idx = sector_index(angles[valid])
-        np.minimum.at(out, idx, np.minimum(r[valid], C.RANGE_MAX))
+    idx = sector_index(angles[valid])
+    np.minimum.at(out, idx, np.minimum(r[valid], C.RANGE_MAX))
     return out
 
 

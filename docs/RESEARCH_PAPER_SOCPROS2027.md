@@ -10,10 +10,10 @@
 ---
 
 ### Authors
-**[Author 1 Name]**, **[Author 2 Name]**, **[Author 3 Name]**, and **[Faculty Advisor / Guide Name]**  
+**Amarjeet Kumar**, **Research Collaborator**, and **Faculty Advisor**  
 Department of Computer Science & Engineering / Robotics and Automation  
-[Institution / University Name], [City, State, Country]  
-*Email:* `{author1, author2, author3, advisor}@institution.edu.in`
+Indraprastha Institute of Information Technology Delhi (IIIT Delhi), New Delhi, India  
+*Email:* `amarjeet21021@iiitd.ac.in`
 
 ---
 
@@ -306,30 +306,33 @@ Seed allocations:
 #### Table 2: Primary Benchmark Evaluation Across Controllers, Splits, and Perturbations
 | Dataset Split | Perturbation Condition | Controller Architecture | Sample Size ($N$) | Success Rate (95% Wilson CI) | Collision Rate | Timeout Rate | SPL (95% Bootstrap CI) | Mean Time (s) |
 |---|---|---|:---:|:---:|:---:|:---:|:---:|:---:|
-| **Test** *(Unseen)* | **Nominal** | **Reactive Baseline** | 100 | 0.450 [0.36, 0.55] | 0.540 | 0.010 | 0.450 [0.35, 0.55] | 16.5 s |
-| **Test** *(Unseen)* | **Nominal** | **DWA + Global Plan** | 100 | 0.730 [0.64, 0.81] | **0.000** | 0.270 | 0.720 [0.63, 0.80] | 19.2 s |
-| **Test** *(Unseen)* | **Nominal** | **PPO (Raw Waypoint)** | 100 | 0.760 [0.67, 0.83] | 0.240 | **0.000** | 0.754 [0.67, 0.83] | 19.3 s |
-| **Test** *(Unseen)* | **Nominal** | **MAS-RL (Shielded PPO)** | 100 | **0.820 [0.73, 0.89]** | **0.000** | 0.180 | **0.812 [0.73, 0.88]** | 19.6 s |
-| **Test** *(Unseen)* | LiDAR Noise | DWA + Global Plan | 100 | 0.760 [0.67, 0.83] | 0.110 | 0.130 | 0.748 [0.67, 0.83] | 20.9 s |
-| **Test** *(Unseen)* | LiDAR Noise | PPO (Raw Waypoint) | 100 | 0.760 [0.67, 0.83] | 0.240 | 0.000 | 0.754 [0.67, 0.83] | 19.3 s |
-| **Test** *(Unseen)* | LiDAR Noise | MAS-RL (Shielded PPO) | 100 | **0.810 [0.72, 0.88]** | **0.000** | 0.190 | **0.801 [0.72, 0.87]** | 19.8 s |
-| **Test** *(Unseen)* | Pose Drift | DWA + Global Plan | 100 | 0.780 [0.69, 0.85] | 0.000 | 0.220 | 0.769 [0.68, 0.85] | 19.8 s |
-| **Test** *(Unseen)* | Pose Drift | PPO (Raw Waypoint) | 100 | 0.770 [0.68, 0.84] | 0.230 | 0.000 | 0.764 [0.68, 0.84] | 19.4 s |
-| **Test** *(Unseen)* | Pose Drift | MAS-RL (Shielded PPO) | 100 | **0.820 [0.73, 0.89]** | **0.000** | 0.180 | **0.810 [0.73, 0.88]** | 19.7 s |
-| **Held-Out** *(Zigzag)*| **Nominal** | **DWA + Global Plan** | 100 | 0.660 [0.56, 0.75] | **0.000** | 0.340 | 0.653 [0.56, 0.75] | 19.2 s |
-| **Held-Out** *(Zigzag)*| **Nominal** | **PPO (Raw Waypoint)** | 100 | 0.430 [0.34, 0.53] | 0.570 | **0.000** | 0.428 [0.34, 0.53] | 15.6 s |
-| **Held-Out** *(Zigzag)*| **Nominal** | **MAS-RL (Shielded PPO)** | 100 | **0.780 [0.69, 0.85]** | **0.000** | 0.220 | **0.742 [0.65, 0.82]** | 18.9 s |
+| **Test** *(Unseen)* | **Nominal** | **Reactive Baseline** | 100 | 0.430 [0.34, 0.53] | 0.560 | 0.010 | 0.430 [0.33, 0.53] | 17.0 s |
+| **Test** *(Unseen)* | **Nominal** | **DWA + Global Plan** | 100 | **0.870 [0.79, 0.92]** | **0.000** | 0.130 | **0.860 [0.79, 0.92]** | 19.8 s |
+| **Test** *(Unseen)* | **Nominal** | **PPO (Raw Waypoint)** | 100 | 0.790 [0.70, 0.86] | 0.200 | **0.010** | 0.780 [0.69, 0.86] | 19.9 s |
+| **Test** *(Unseen)* | **Nominal** | **PPO Governor (Layer 2)** | 100 | 0.830 [0.74, 0.89] | **0.010** | 0.160 | 0.820 [0.75, 0.89] | 20.3 s |
+| **Test** *(Unseen)* | **Nominal** | **MAS-RL (Full Shield)** | 100 | 0.840 [0.76, 0.90] | **0.010** | 0.150 | 0.832 [0.76, 0.90] | 20.9 s |
+| **Test** *(Unseen)* | LiDAR Noise | DWA + Global Plan | 100 | **0.890 [0.81, 0.94]** | 0.050 | 0.060 | **0.880 [0.81, 0.94]** | 21.1 s |
+| **Test** *(Unseen)* | LiDAR Noise | PPO (Raw Waypoint) | 100 | 0.790 [0.70, 0.86] | 0.200 | 0.010 | 0.783 [0.70, 0.86] | 19.8 s |
+| **Test** *(Unseen)* | LiDAR Noise | MAS-RL (Full Shield) | 100 | 0.820 [0.73, 0.88] | 0.050 | 0.130 | 0.806 [0.73, 0.88] | 20.6 s |
+| **Test** *(Unseen)* | Pose Drift | DWA + Global Plan | 100 | **0.870 [0.79, 0.92]** | 0.000 | 0.130 | **0.860 [0.79, 0.92]** | 20.0 s |
+| **Test** *(Unseen)* | Pose Drift | PPO (Raw Waypoint) | 100 | 0.790 [0.70, 0.86] | 0.200 | 0.010 | 0.784 [0.70, 0.86] | 19.7 s |
+| **Test** *(Unseen)* | Pose Drift | MAS-RL (Full Shield) | 100 | 0.820 [0.73, 0.88] | 0.060 | 0.120 | 0.813 [0.73, 0.88] | 20.8 s |
+| **Held-Out** *(Zigzag)*| **Nominal** | **DWA + Global Plan** | 100 | **0.650 [0.55, 0.74]** | **0.000** | 0.350 | **0.644 [0.55, 0.73]** | 17.1 s |
+| **Held-Out** *(Zigzag)*| **Nominal** | **PPO (Raw Waypoint)** | 100 | 0.510 [0.41, 0.61] | 0.490 | **0.000** | 0.509 [0.41, 0.60] | 15.4 s |
+| **Held-Out** *(Zigzag)*| **Nominal** | **PPO Governor (Layer 2)** | 100 | 0.560 [0.46, 0.65] | **0.000** | 0.440 | 0.559 [0.46, 0.65] | 16.1 s |
+| **Held-Out** *(Zigzag)*| **Nominal** | **MAS-RL (Full Shield)** | 100 | 0.600 [0.50, 0.69] | **0.010** | 0.390 | 0.597 [0.51, 0.69] | 19.1 s |
+| **Held-Out** *(Zigzag)*| LiDAR Noise | DWA + Global Plan | 100 | 0.720 [0.63, 0.80] | 0.120 | 0.160 | 0.714 [0.63, 0.80] | 19.3 s |
+| **Held-Out** *(Zigzag)*| LiDAR Noise | PPO (Raw Waypoint) | 100 | 0.510 [0.41, 0.61] | 0.490 | 0.000 | 0.509 [0.41, 0.60] | 15.4 s |
+| **Held-Out** *(Zigzag)*| LiDAR Noise | MAS-RL (Full Shield) | 100 | **0.750 [0.66, 0.82]** | 0.070 | 0.180 | **0.738 [0.66, 0.81]** | 19.5 s |
 
 ### 6.2 Analysis of the Safety-Conservatism Failure Mode Dichotomy
 Table 2 reveals the fundamental dichotomy between classical and learned navigation controllers:
-- In the nominal test split, **unshielded PPO and DWA achieve statistically overlapping success rates (76.0% vs. 73.0%)**.
-- However, their failure modes are diametrically opposite:
-  - **DWA fails exclusively via TIMEOUT (27.0%) with ZERO collisions (0.0%).**
-  - **PPO fails exclusively via COLLISION (24.0%) with ZERO timeouts (0.0%).**
-
-When navigating narrow door thresholds or acute corners, DWA's obstacle inflation layer evaluates candidate trajectories as high-cost or inadmissible, causing the robot to stop and timeout. Conversely, PPO's forward-progress reward ($R_{\text{geo}} = +10.0$) incentivizes full speed ($v \to 0.26\,\text{m/s}$); when an obstacle appears around a corner within the vehicle's physical stopping distance ($v^2 / 2a \approx 0.05\,\text{m}$), impact is unavoidable. 
-
-Our proposed **MAS-RL eliminates this trade-off**: by coupling PPO's agile steering with an analytical CBF stopping-distance governor, MAS-RL achieves **0.0% collisions** and reduces timeouts to **18.0%**, yielding an overall success rate of **82.0% [0.73, 0.89]** and the highest path efficiency (**$0.812$ SPL**).
+- In the nominal test split, **DWA achieves 87.0% success with 0.0% collisions**, but suffers from a **13.0% timeout rate** due to conservative local-minima freezing.
+- Conversely, **unshielded PPO achieves 79.0% success with only a 1.0% timeout rate**, but suffers a **20.0% collision rate** driven by forward velocity saturation ($v \to 0.26\,\text{m/s}$).
+- On the held-out `zigzag` switchback split (100 unique seeds), this dichotomy becomes severe:
+  - **Raw PPO collapses to 51.0% success with a 49.0% collision rate and 0.0% timeouts.**
+  - **PPO Governor eliminates collisions (0.0%), but inflates timeouts to 44.0% (freezing robot).**
+  - **MAS-RL reconciles this trade-off: elevating held-out success to 60.0% under nominal conditions (slashing collisions from 49.0% to 1.0%), and outperforming DWA under LiDAR noise (75.0% vs. 72.0% success, $p = 1.19 \times 10^{-7}$ vs. PPO) while executing $7\times$ faster on CPU (1.2 ms).**
 
 ### 6.3 State-of-the-Art Comparative Evaluation ("How We Are Better")
 
@@ -352,13 +355,13 @@ To determine the contribution of each shielding layer, we conducted an ablation 
 #### Table 4: Safety Shield Component Ablation Study
 | Configuration | Action Space Constraint | Test Success Rate | Test Collision Rate | Test Timeout Rate | ZigZag Success Rate | ZigZag Collision Rate |
 |---|---|:---:|:---:|:---:|:---:|:---:|
-| **Raw PPO (Unshielded)** | Forward-Only ($v \ge 0$) | 76.0% [0.67, 0.83] | 24.0% | **0.0%** | 43.0% [0.34, 0.53] | 57.0% |
-| **PPO + Layers 1–3 Governor** | Forward-Only ($v \ge 0$) | 78.0% [0.69, 0.85] | **0.0%** | 22.0% | 68.0% [0.58, 0.77] | **0.0%** |
-| **PPO + Full 4-Layer Shield** | Forward + Recovery ($v < 0$) | **82.0% [0.73, 0.89]** | **0.0%** | 18.0% | **78.0% [0.69, 0.85]** | **0.0%** |
+| **Raw PPO (Unshielded)** | Forward-Only ($v \ge 0$) | 79.0% [0.70, 0.86] | 20.0% | **1.0%** | 51.0% [0.41, 0.61] | 49.0% |
+| **PPO + Safety Governor (L1)** | Forward-Only ($v \ge 0$) | 83.0% [0.74, 0.89] | **1.0%** | 16.0% | 56.0% [0.46, 0.65] | **0.0%** |
+| **MAS-RL (Full 4-Layer Shield)**| Forward + Recovery ($v < 0$) | **84.0% [0.76, 0.90]** | **1.0%** | 15.0% | **60.0% [0.50, 0.69]** | **1.0%** |
 
 **Ablation Takeaways:**
-1. **Layers 1–3 alone eliminate 100% of collisions ($24.0\% \to 0.0\%$)** within the strict forward-only action space ($v \ge 0$). This proves that collision prevention is entirely achieved by analytical stopping-distance constraints and lateral repulsion.
-2. **Layer 4 auto-recovery reduces timeouts ($22.0\% \to 18.0\%$)** by allowing the robot to reverse ($v = -0.12\,\text{m/s}$) and untangle from dead-end pinches, converting would-be timeouts into completions.
+1. **Governor braking alone eliminates 95% of collisions on test ($20.0\% \to 1.0\%$) and 100% on ZigZag ($49.0\% \to 0.0\%$)** within the strict forward-only action space ($v \ge 0$). This proves that collision prevention is driven by analytical stopping-distance constraints.
+2. **Layer 4 auto-recovery breaks stagnation deadlocks** by allowing the robot to execute verified rear-clearance reversals ($v = -0.10\,\text{m/s}$) and damped pivots, boosting held-out success to **60.0%** (nominal) and **75.0%** (under LiDAR noise).
 
 ---
 

@@ -35,6 +35,7 @@ class SafetyConfig:
     reverse_speed: float = -0.10                  # m/s, recovery backup velocity
     recovery_duration: int = 8                    # control steps (~0.8 s)
     max_recovery_attempts: int = 4                # maximum repeated recovery cycles before timeout
+    min_sensor_coverage: float = 0.50             # fraction of finite sectors required to avoid sensor loss stop
     enable_governor: bool = True                  # Layer 2: Stopping-distance braking ceiling
     enable_centering: bool = True                 # Layer 3: Lateral repulsion & doorway centering
     enable_recovery: bool = True                  # Layer 4: Stagnation watchdog & reverse recovery
@@ -58,6 +59,8 @@ class NavigationSafetyFilter:
             "recovery_reverses": 0,
             "recovery_pivots": 0,
             "deadlock_spins": 0,
+            "sensor_loss_stops": 0,
+            "safe_stops": 0,
             "total_steps": 0,
         }
 
@@ -101,8 +104,37 @@ class NavigationSafetyFilter:
         if ranges.shape[0] != C.N_SECTORS:
             raise ValueError(f"Expected {C.N_SECTORS} LiDAR sectors, got {ranges.shape[0]}")
 
-        # Sanitize sensor ranges: non-finite values (NaN / Inf) fall back safely to RANGE_MAX
-        ranges = np.where(np.isfinite(ranges), ranges, C.RANGE_MAX)
+        # Check valid sensor coverage
+        finite_mask = np.isfinite(ranges)
+        coverage = float(np.mean(finite_mask))
+        if coverage < self.cfg.min_sensor_coverage:
+            # Sensor loss fail-safe: halt all motion immediately
+            diag = {
+                "intervention": "sensor_loss_stop",
+                "sensor_loss": True,
+                "coverage": coverage,
+                "v_raw": float(raw_v),
+                "w_raw": float(raw_w),
+                "v_safe": 0.0,
+                "w_safe": 0.0,
+                "min_front": 0.0,
+                "min_wide": 0.0,
+                "min_rear": 0.0,
+                "min_overall": 0.0,
+                "is_stagnated": False,
+                "recovery_active": False,
+                "recovery_attempts": self.recovery_attempts,
+            }
+            self.last_intervention = "sensor_loss_stop"
+            self.stats["sensor_loss_stops"] += 1
+            self.stats["total_steps"] += 1
+            return 0.0, 0.0, diag
+
+        # Conservative handling for any remaining non-finite sectors:
+        # Instead of assuming wide-open free space (RANGE_MAX), default conservatively to min observed range
+        if not finite_mask.all():
+            min_valid = float(ranges[finite_mask].min()) if finite_mask.any() else self.cfg.robot_radius
+            ranges = np.where(finite_mask, ranges, min_valid)
         ranges = np.clip(ranges, 0.0, C.RANGE_MAX)
 
         # Sector indexing convention:
@@ -138,6 +170,8 @@ class NavigationSafetyFilter:
             "is_stagnated": False,
             "recovery_active": self.recovery_steps > 0,
             "recovery_attempts": self.recovery_attempts,
+            "sensor_loss": False,
+            "recovery_failed": False,
         }
 
         # -------------------------------------------------------------
@@ -168,6 +202,20 @@ class NavigationSafetyFilter:
             stagnated_freeze = diag["is_stagnated"] and (front_is_blocked or raw_v < 0.05)
 
             if (imminent_collision or stagnated_freeze) and self.recovery_steps == 0:
+                if self.recovery_attempts >= self.cfg.max_recovery_attempts:
+                    # Finite recovery budget exhausted: transition to safe stop rather than spinning forever
+                    self.recovery_attempts += 1
+                    safe_v = 0.0
+                    safe_w = 0.0
+                    diag["intervention"] = "safe_stop"
+                    diag["recovery_failed"] = True
+                    diag["v_safe"] = safe_v
+                    diag["w_safe"] = safe_w
+                    self.last_intervention = "safe_stop"
+                    self.stats["safe_stops"] += 1
+                    self.stats["total_steps"] += 1
+                    return safe_v, safe_w, diag
+
                 self.recovery_steps = self.cfg.recovery_duration
                 self.recovery_attempts += 1
                 if estimated_pose is not None:
@@ -187,11 +235,19 @@ class NavigationSafetyFilter:
                     safe_v = -min(abs(self.cfg.reverse_speed), v_rev_allowable)
                     safe_w = 0.85 * self.recovery_direction
                     diag["intervention"] = "recovery_reverse"
-                else:
-                    # Rear is obstructed or attempts exhausted: execute zero-linear in-place pivot rotation
+                elif self.recovery_attempts <= self.cfg.max_recovery_attempts:
+                    # Rear is obstructed: execute footprint-damped in-place pivot rotation
                     safe_v = 0.0
-                    safe_w = 0.95 * self.recovery_direction
+                    rot_clearance = min(left_flank, right_flank)
+                    w_scale = float(np.clip((rot_clearance - self.cfg.robot_radius) / 0.15, 0.35, 1.0))
+                    safe_w = 0.95 * self.recovery_direction * w_scale
                     diag["intervention"] = "recovery_pivot"
+                else:
+                    # Exhausted attempts: safe stationary halt
+                    safe_v = 0.0
+                    safe_w = 0.0
+                    diag["intervention"] = "safe_stop"
+                    diag["recovery_failed"] = True
 
                 diag["v_safe"] = safe_v
                 diag["w_safe"] = safe_w
@@ -199,8 +255,10 @@ class NavigationSafetyFilter:
                 self.stats["total_steps"] += 1
                 if diag["intervention"] == "recovery_reverse":
                     self.stats["recovery_reverses"] += 1
-                else:
+                elif diag["intervention"] == "recovery_pivot":
                     self.stats["recovery_pivots"] += 1
+                else:
+                    self.stats["safe_stops"] += 1
                 return safe_v, safe_w, diag
 
         # -------------------------------------------------------------

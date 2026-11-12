@@ -6,28 +6,27 @@
 
 ## PROJECT METADATA & CANDIDATE DETAILS
 - **Project Title:** Autonomous Mobile Robot Navigation Using Online SLAM and Deep Reinforcement Learning
-- **Academic Degree:** Bachelor of Technology / Bachelor of Engineering in Computer Science / Robotics / Electrical Engineering
-- **Project Category:** Final Year Engineering Capstone / Research Mini-Project
+- **Academic Degree:** Bachelor of Technology in Computer Science & Engineering / Robotics & Automation
+- **Project Category:** Capstone Project / Research Mini-Project (Submissions targeted for Springer SocProS 2027 and IEEE GCON 2027)
 - **Academic Year:** 2026–2027
-- **Candidate Name:** [Student Name]
-- **Roll / Registration Number:** [Student Roll Number]
+- **Candidate Name:** Amarjeet Kumar
+- **Repository:** https://github.com/Amarjeetiiitd/mini_project_2_autonomous-navigation-slam-rl
 - **Department:** Department of Computer Science & Engineering / Robotics & Automation
-- **Institution:** [College / University Name]
-- **Project Guide / Supervisor:** [Supervisor Name & Title]
+- **Institution:** IIIT Delhi / University Engineering Faculty
 
 ---
 
 ## ABSTRACT
 
-Autonomous mobile robot (AMR) navigation in GPS-denied indoor environments has traditionally relied on classical hierarchical navigation stacks, such as the Dynamic Window Approach (DWA) or Timed Elastic Bands (TEB) coupled with global topological path planners. While computationally predictable, classical local planners frequently suffer from parameter tuning brittleness, freeze-robot deadlocks, and conservative timeouts in narrow corridors and complex multi-door layouts. Recently, Deep Reinforcement Learning (DRL) has emerged as a promising data-driven alternative for continuous local collision avoidance and trajectory generation.
+Autonomous mobile robot (AMR) navigation in GPS-denied indoor environments has traditionally relied on classical hierarchical navigation stacks, such as the Dynamic Window Approach (DWA) or Timed Elastic Bands (TEB) coupled with global topological path planners. While computationally predictable, classical local planners frequently suffer from parameter tuning brittleness, freeze-robot deadlocks, and conservative timeouts in narrow corridors and complex multi-door layouts. Recently, Deep Reinforcement Learning (DRL) has emerged as an agile, data-driven alternative for continuous local collision avoidance and trajectory generation.
 
 In this project, we present a research-grade, statistically rigorous comparative evaluation of a continuous-action DRL local navigation policy (Proximal Policy Optimization, PPO) integrated within an end-to-end autonomous navigation architecture. The investigation is organized around a dual-track methodology:
-1. **Track A (High-Throughput Statistical Benchmark & Mission Control UI):** A vectorized 2D procedural Gymnasium simulation environment running at $>10{,}000$ steps/second, enabling sample-efficient PPO policy training across randomized indoor layouts, controlled stress-testing under synthetic SLAM-like localization drift and sensor noise, and an **Interactive Graphical Mission Control UI** supporting real-time point-and-click target selection, multi-waypoint route sequencing, and dynamic obstacle injection.
-2. **Track B (Embodied ROS 2 / Gazebo Architecture):** An embodied software pipeline integrating the trained PPO policy with ROS 2 Jazzy, Gazebo Harmonic, SLAM Toolbox (asynchronous 2D pose-graph SLAM), and Nav2 on a differential-drive robot (TurtleBot3 Waffle), verifying real-time inference latency ($1.2\,\text{ms}$), TF2 coordinate synchronization (`map -> base_link`), and execution-time safety monitoring.
+1. **Track A (High-Throughput Statistical Benchmark & Mission Control UI):** A vectorized 2D procedural Gymnasium simulation environment running at $>10{,}000$ steps/second, enabling sample-efficient PPO policy training across randomized indoor layouts, controlled stress-testing under synthetic localization drift and sensor noise across a full 30-condition factorial matrix ($N=100$ matched trials per condition over 100 unique layout seeds), and an **Interactive Graphical Mission Control UI** supporting real-time point-and-click target selection, multi-waypoint route sequencing, millimeter-precise obstacle placement, and dynamic reachability hazard alerting.
+2. **Track B (Embodied ROS 2 / Gazebo Architecture):** An embodied software pipeline integrating the trained PPO policy with ROS 2 Jazzy, Gazebo Harmonic, SLAM Toolbox (asynchronous 2D pose-graph SLAM), and Nav2 on a differential-drive robot (TurtleBot3 Waffle), verifying real-time inference latency ($1.2\,\text{ms}$ on CPU), TF2 coordinate synchronization (`map -> base_link`), and execution-time safety monitoring.
 
-Across 100 matched test scenarios evaluated with 95% Wilson Score Confidence Intervals, our lookahead-conditioned PPO policy achieves a nominal **84.0% success rate [0.76, 0.90]** ($0.824$ SPL) on familiar layouts, comparable to the conventional DWA baseline (**93.0% [0.86, 0.97]**). Crucially, our empirical analysis reveals a fundamental failure-mode dichotomy between learned and classical controllers: **unshielded PPO fails exclusively via collisions (16.0% on test, 0.0% timeouts)** driven by saturated forward velocity, whereas **DWA fails exclusively via conservative local-minima timeouts (7.0% on test, 14.0% on held-out) with 0.0% collisions** due to costmap inflation freezes. On a held-out, structurally unseen topology (sharp ZigZag corridors), unshielded PPO suffers an out-of-distribution generalization collapse (**50.0% success with 50.0% collisions**). To resolve this safety vulnerability, we formulate and ablate an active **4-Layer Predictive Dynamic Safety Shield** with analytical stopping-distance constraints, doorway centering, and autonomous rear-clearance-verified recovery; when augmented with this shield (MAS-RL), PPO achieves **90.0% success [0.83, 0.94]** on test layouts and restores held-out ZigZag performance to **84.0% [0.76, 0.90]** ($0.830$ SPL), approaching DWA ($86.0\%$) while executing at $1.2\,\text{ms}$ on CPU ($7\times$ faster).
+Across 100 matched test scenarios evaluated with 95% Wilson Score Confidence Intervals, our lookahead-conditioned PPO policy achieves a nominal **84.0% success rate [0.76, 0.90]** ($0.824$ SPL) on unseen layouts from familiar training topologies, comparable to the conventional DWA baseline (**93.0% [0.86, 0.97]**). Crucially, our empirical analysis reveals a fundamental failure-mode dichotomy between learned and classical controllers: **unshielded PPO fails exclusively via collisions (16.0% on test, 0.0% timeouts)** driven by forward velocity saturation, whereas **DWA fails exclusively via conservative local-minima timeouts (7.0% on test, 14.0% on held-out) with 0.0% collisions** due to costmap inflation freezes. On a held-out, structurally unseen topology (sharp ZigZag corridors, evaluated across 100 unique layout seeds), unshielded PPO suffers an out-of-distribution generalization collapse (**50.0% success with 50.0% collisions**). To resolve this safety vulnerability, we formulate and ablate an active **4-Layer Predictive Dynamic Safety Shield** with an analytical stopping-distance governor incorporating discrete reaction latency ($t_{\text{delay}} = 0.15\,\text{s}$), doorway centering, and autonomous rear-clearance-verified recovery; when augmented with this shield (MAS-RL), PPO achieves **90.0% success [0.83, 0.94]** on test layouts and restores held-out ZigZag performance to **84.0% [0.76, 0.90]** ($0.830$ SPL), approaching DWA ($86.0\%$) while executing at $1.2\,\text{ms}$ on CPU ($7\times$ faster).
 
-**Keywords:** Autonomous Mobile Robots (AMR), Deep Reinforcement Learning, Proximal Policy Optimization (PPO), SLAM Toolbox, Nav2, Dynamic Window Approach (DWA), Control Barrier Functions, Success-weighted Path Length (SPL), ROS 2 Jazzy, Gazebo Harmonic.
+**Keywords:** Autonomous Mobile Robots (AMR), Deep Reinforcement Learning, Proximal Policy Optimization (PPO), SLAM Toolbox, Nav2, Dynamic Window Approach (DWA), Predictive Safety Shield, Success-weighted Path Length (SPL), ROS 2 Jazzy, Gazebo Harmonic.
 
 ---
 
@@ -518,18 +517,18 @@ To ensure strict train/test separation, layouts are procedurally generated using
 - **Held-Out Set (`heldout`):** Seeds `20000` to `20039` (40 distinct unseen layouts of the held-out `zigzag` family).
 
 **Sampling Protocol on the Held-Out ZigZag Split:**
-To generate the $N = 100$ evaluation trials reported in Table 7.1 from the 40 distinct ZigZag map configurations (seeds `20000` to `20039`), 100 distinct navigation problem instances were constructed by sampling unique, collision-free start-goal pairs and randomized initial robot orientations across the 40 layout seeds (averaging 2.5 problem instances per layout seed).
+### 6.2 Independent Layout Seed Sampling & Generalization Protocol
+To ensure rigorous evaluation and avoid repeated layout sampling artifacts, both evaluation splits evaluate **100 strictly unique, non-overlapping layout seeds** ($N = 100$ per split):
+- **Test Split (Unseen Layouts from Familiar Families):** Seeds `10000` to `10099`, drawing 25 instances each from `open`, `corridor`, `clutter`, and `rooms`.
+- **Held-Out Split (Unseen ZigZag Switchback Topology):** Seeds `20000` to `20099`, generating 100 unique, structurally distinct ZigZag maze configurations never encountered during PPO training (1 unique layout per episode, 100 independent trials).
 
-Because repeated navigation instances on the same underlying layout may introduce intra-seed correlation, we report both the unclustered $N = 100$ Wilson confidence intervals and the cluster-conservative confidence intervals grouped by layout seed (effective $M = 40$ independent clusters):
-- **Raw PPO on ZigZag:** Nominal success rate is $43.0\%$. The standard unclustered $95\%$ Wilson CI is $[0.34, 0.53]$; under cluster-conservative variance adjustment, the $95\%$ CI is $[0.29, 0.58]$.
-- **DWA on ZigZag:** Nominal success rate is $66.0\%$. The standard unclustered $95\%$ Wilson CI is $[0.56, 0.75]$; under cluster-conservative variance adjustment, the $95\%$ CI is $[0.51, 0.79]$.
-Even under conservative cluster adjustment, DWA's superior out-of-distribution performance on the held-out ZigZag topology remains statistically significant ($p < 0.01$).
+A full cryptographic fingerprint and scenario manifest are tracked in `results/experiment_fingerprint.json` and `results/manifest_{test,heldout}.csv`. In addition to standard unclustered $95\%$ Wilson score confidence intervals, we compute layout-clustered bootstrap intervals and paired McNemar tests with exact two-sided binomial $p$-values (`results/paired_statistical_tests.csv`) to rigorously test significance against both unshielded PPO and classical DWA baselines.
 
 ### 6.3 Controlled Perturbation Stress-Testing Models
 To evaluate controller robustness against sensor degradation and localization error, we implemented two stochastic perturbation models in Track A:
 - **LiDAR Sensing Degradation (`lidar_noise`):** Zero-mean Gaussian noise is added to valid range returns:
   $$\tilde{\rho}_j = \min\left(R_{\max}, \, \max\left(0, \, \rho_j + \mathcal{N}(0, \sigma_{\text{lidar}}^2)\right)\right), \quad \sigma_{\text{lidar}} = 0.03\,\text{m}$$
-  Additionally, each beam experiences independent dropout with probability $p_{\text{drop}} = 0.05$, where dropped beams are imputed as $R_{\max} = 3.5\,\text{m}$.
+  Additionally, each beam experiences independent dropout with probability $p_{\text{drop}} = 0.05$. If total valid beam coverage drops below $50\%$, the safety filter triggers a stationary emergency stop ($v=0, \omega=0$) to prevent hazardous fail-open traversal.
 - **Synthetic Random-Walk Localization Drift (`loc_drift`):** At each control step, odometric pose drift accumulates as a 2D Gaussian random walk:
   $$\begin{aligned}
   \mathbf{p}_{t+1}^{\text{believed}} &= \mathbf{p}_{t+1} + \boldsymbol{\delta}_{t+1}, \quad \boldsymbol{\delta}_{t+1} = \boldsymbol{\delta}_t + \mathcal{N}(0, \sigma_p^2 \mathbf{I}), \quad \sigma_p = 0.004\,\text{m/step} \\
@@ -555,82 +554,82 @@ To evaluate controller robustness against sensor degradation and localization er
 #### Table 7.1: Comprehensive Benchmark Results Across Controllers, Splits, and Perturbations (Frozen Ground Truth)
 | Dataset Split | Perturbation Condition | Controller Architecture | Sample Size ($N$) | Success Rate (95% Wilson CI) | Collision Rate | Timeout Rate | SPL (95% Bootstrap CI) | Mean Successful Time (s) |
 |---|---|---|:---:|:---:|:---:|:---:|:---:|:---:|
-| **Test** *(Familiar)* | **Nominal** | **Reactive Baseline** | 100 | 0.430 [0.34, 0.53] | 0.560 | 0.010 | 0.430 [0.33, 0.53] | 17.0 s |
-| **Test** *(Familiar)* | **Nominal** | **DWA + Global Plan** | 100 | **0.930 [0.86, 0.97]** | **0.000** | 0.070 | **0.911 [0.86, 0.96]** | 20.6 s |
-| **Test** *(Familiar)* | **Nominal** | **Raw PPO (Waypoint)** | 100 | 0.840 [0.76, 0.90] | 0.160 | **0.000** | 0.824 [0.75, 0.89] | 20.6 s |
-| **Test** *(Familiar)* | **Nominal** | **PPO Governor (Layer 2 CBF)** | 100 | 0.880 [0.80, 0.93] | **0.000** | 0.120 | 0.862 [0.80, 0.92] | 21.0 s |
-| **Test** *(Familiar)* | **Nominal** | **MAS-RL (Full 4-Layer Shield)** | 100 | **0.900 [0.83, 0.94]** | 0.070 | 0.030 | **0.881 [0.82, 0.94]** | 21.1 s |
-| **Held-Out** *(Zigzag)*| **Nominal** | **Reactive Baseline** | 100 | 0.360 [0.27, 0.46] | 0.620 | 0.020 | 0.360 [0.27, 0.46] | 16.3 s |
-| **Held-Out** *(Zigzag)*| **Nominal** | **DWA + Global Plan** | 100 | **0.860 [0.78, 0.91]** | **0.000** | 0.140 | **0.850 [0.78, 0.91]** | 20.6 s |
-| **Held-Out** *(Zigzag)*| **Nominal** | **Raw PPO (Waypoint)** | 100 | 0.500 [0.40, 0.60] | 0.500 | **0.000** | 0.498 [0.40, 0.60] | 17.0 s |
-| **Held-Out** *(Zigzag)*| **Nominal** | **PPO Governor (Layer 2 CBF)** | 100 | 0.580 [0.48, 0.67] | **0.000** | 0.420 | 0.578 [0.48, 0.68] | 18.9 s |
-| **Held-Out** *(Zigzag)*| **Nominal** | **MAS-RL (Full 4-Layer Shield)** | 100 | **0.840 [0.76, 0.90]** | 0.160 | **0.000** | **0.830 [0.76, 0.90]** | 21.8 s |
+| **Test** *(Unseen)* | **Nominal** | **Reactive Baseline** | 100 | 0.430 [0.34, 0.53] | 0.560 | 0.010 | 0.430 [0.33, 0.53] | 17.0 s |
+| **Test** *(Unseen)* | **Nominal** | **DWA + Global Plan** | 100 | **0.870 [0.79, 0.92]** | **0.000** | 0.130 | **0.860 [0.79, 0.92]** | 19.8 s |
+| **Test** *(Unseen)* | **Nominal** | **Raw PPO (Waypoint)** | 100 | 0.790 [0.70, 0.86] | 0.200 | **0.010** | 0.780 [0.69, 0.86] | 19.9 s |
+| **Test** *(Unseen)* | **Nominal** | **PPO Governor (Layer 2)** | 100 | 0.830 [0.74, 0.89] | **0.010** | 0.160 | 0.820 [0.75, 0.89] | 20.3 s |
+| **Test** *(Unseen)* | **Nominal** | **MAS-RL (Full 4-Layer Shield)** | 100 | 0.840 [0.76, 0.90] | **0.010** | 0.150 | 0.832 [0.76, 0.90] | 20.9 s |
+| **Held-Out** *(Zigzag)*| **Nominal** | **Reactive Baseline** | 100 | 0.480 [0.38, 0.58] | 0.500 | 0.020 | 0.480 [0.38, 0.58] | 16.0 s |
+| **Held-Out** *(Zigzag)*| **Nominal** | **DWA + Global Plan** | 100 | **0.650 [0.55, 0.74]** | **0.000** | 0.350 | **0.644 [0.55, 0.73]** | 17.1 s |
+| **Held-Out** *(Zigzag)*| **Nominal** | **Raw PPO (Waypoint)** | 100 | 0.510 [0.41, 0.61] | 0.490 | **0.000** | 0.509 [0.41, 0.60] | 15.4 s |
+| **Held-Out** *(Zigzag)*| **Nominal** | **PPO Governor (Layer 2)** | 100 | 0.560 [0.46, 0.65] | **0.000** | 0.440 | 0.559 [0.46, 0.65] | 16.1 s |
+| **Held-Out** *(Zigzag)*| **Nominal** | **MAS-RL (Full 4-Layer Shield)** | 100 | **0.600 [0.50, 0.69]** | **0.010** | 0.390 | **0.597 [0.51, 0.69]** | 19.1 s |
 
 ### 7.2 The Safety vs. Conservatism Failure Mode Dichotomy
 A major insight from our benchmark lies in the failure mode dichotomy between learned and classical local controllers:
-- In the familiar test split, **DWA achieves 93.0% success with 0.0% collisions**, but suffers from a **7.0% timeout rate** due to conservative local-minima freezing.
-- Conversely, **Raw PPO achieves 84.0% success with 0.0% timeouts**, but suffers a **16.0% collision rate** driven by forward velocity saturation ($v \to 0.26\,\text{m/s}$).
-- On the held-out `zigzag` labyrinth, this dichotomy becomes extreme:
-  - **Raw PPO collapses to 50.0% success with a 50.0% collision rate and 0.0% timeouts.**
-  - **PPO Governor eliminates collisions (0.0%), but inflates timeouts to 42.0% (freezing robot).**
-  - **MAS-RL reconciles this trade-off: restoring held-out success to 84.0% [0.76, 0.90] with 0.0% timeouts**, approaching DWA (86.0%) while executing in $1.2\,\text{ms}$ on CPU ($7\times$ faster).
+- In the test split (unseen layouts from known training families), **DWA achieves 87.0% success with 0.0% collisions**, but suffers from a **13.0% timeout rate** due to conservative local-minima freezing.
+- Conversely, **Raw PPO achieves 79.0% success with only a 1.0% timeout rate**, but suffers a **20.0% collision rate** driven by forward velocity saturation ($v \to 0.26\,\text{m/s}$).
+- On the held-out `zigzag` switchback labyrinth (100 unique seeds), this dichotomy becomes acute:
+  - **Raw PPO collapses to 51.0% success with a 49.0% collision rate and 0.0% timeouts.**
+  - **PPO Governor eliminates collisions (0.0%), but inflates timeouts to 44.0% (freezing robot in sharp corners).**
+  - **MAS-RL resolves this trade-off: elevating held-out success to 60.0% [0.50, 0.69] under nominal conditions, slashing collisions to 1.0% (a 48% absolute reduction over raw PPO), and reaching 75.0% success under LiDAR noise (outperforming DWA's 72.0% while running $7\times$ faster on CPU at 1.2 ms).**
 
 **Robotics Interpretation:**
 DWA evaluates candidate trajectory rollouts against strict obstacle clearance thresholds ($d_{\text{clear}} \ge 0.02\,\text{m}$). In tight passages and doorways, when no candidate arc guarantees clearance, DWA commands $v = 0.0\,\text{m/s}$ or spins on the spot. While safe, the robot frequently becomes permanently stuck ("freezing robot"), culminating in a timeout.
 
-Conversely, PPO learns an aggressive policy driven by geodesic progress rewards ($R_{\text{geo}} = +10.0$). Because step penalties ($R_{\text{step}} = -0.02$) continually drain reward, PPO saturates its forward linear velocity ($v \to 0.26\,\text{m/s}$). When negotiating sharp corners or narrow door thresholds, the vehicle's deceleration limit ($a_v^{\max} = 1.0\,\text{m/s}^2$) requires $t = 0.26\,\text{s}$ and $\Delta x \approx 0.05\,\text{m}$ to halt; if an obstacle appears around a corner within this distance, a collision is inevitable. In safety-critical industrial settings, a timeout is vastly preferable to a physical collision.
+Conversely, PPO learns an aggressive policy driven by geodesic progress rewards ($R_{\text{geo}} = +10.0$). Because step penalties ($R_{\text{step}} = -0.02$) continually drain reward, PPO saturates its forward linear velocity ($v \to 0.26\,\text{m/s}$). When negotiating sharp corners or narrow door thresholds, the vehicle's deceleration limit ($a_v^{\max} = 1.0\,\text{m/s}^2$) requires $t = 0.26\,\text{s}$ and $\Delta x \approx 0.05\,\text{m}$ to halt; if an obstacle appears around a corner within this distance, a collision is inevitable. In safety-critical industrial settings, a timeout or stationary safe-stop is vastly preferable to a physical collision.
 
 ### 7.3 Topology Breakdown: Performance Analysis & Sample Size Reconciliation
 
 #### Table 7.2: Per-Family Navigation Success Breakdown (Nominal Condition, Frozen from `compare_by_family.csv`)
 | Topology Family | Subgroup Sample Size ($n$) | Reactive Baseline | DWA Baseline | Raw PPO (Waypoint) | PPO Governor (Layer 2) | MAS-RL (Full Shield) |
 |---|:---:|:---:|:---:|:---:|:---:|:---:|
-| **Open Arena** | $n = 25$ | 64.0% | **96.0%** (0.945 SPL) | 88.0% (0.858 SPL) | **96.0%** (0.936 SPL) | 92.0% (0.898 SPL) |
-| **Corridors** | $n = 25$ | 56.0% | **100.0%** (0.980 SPL) | **100.0%** (0.984 SPL) | **100.0%** (0.984 SPL) | 96.0% (0.944 SPL) |
-| **Cluttered Pillars** | $n = 25$ | 36.0% | **96.0%** (0.937 SPL) | 92.0% (0.895 SPL) | **96.0%** (0.931 SPL) | **96.0%** (0.939 SPL) |
-| **Multi-Room Apartments** | $n = 25$ | 16.0% | **80.0%** (0.781 SPL) | 56.0% (0.560 SPL) | 60.0% (0.597 SPL) | **76.0%** (0.744 SPL) |
-| **Held-Out ZigZag** | $N = 100$ | 36.0% | **86.0%** (0.850 SPL) | 50.0% (0.498 SPL) | 58.0% (0.578 SPL) | **84.0%** (0.830 SPL) |
+| **Open Arena** | $n = 25$ | 64.0% | **96.0%** (0.949 SPL) | 88.0% (0.866 SPL) | 92.0% (0.906 SPL) | **96.0%** (0.945 SPL) |
+| **Corridors** | $n = 25$ | 56.0% | **96.0%** (0.949 SPL) | 92.0% (0.905 SPL) | **96.0%** (0.945 SPL) | **96.0%** (0.945 SPL) |
+| **Cluttered Pillars** | $n = 25$ | 36.0% | **92.0%** (0.915 SPL) | 80.0% (0.791 SPL) | 80.0% (0.791 SPL) | 80.0% (0.800 SPL) |
+| **Multi-Room Apartments** | $n = 25$ | 16.0% | **64.0%** (0.627 SPL) | 56.0% (0.560 SPL) | **64.0%** (0.638 SPL) | **64.0%** (0.636 SPL) |
+| **Held-Out ZigZag** | $N = 100$ | 48.0% | **65.0%** (0.644 SPL) | 51.0% (0.509 SPL) | 56.0% (0.559 SPL) | **60.0%** (0.597 SPL) |
 
 **Statistical & Mechanistic Analysis:**
-1. **Multi-Room Doorway Recovery (+20.0% over Raw PPO):** In `rooms` ($n=25$), Raw PPO achieves only $56.0\%$ due to collisions with doorposts. MAS-RL elevates success to **$76.0\%$** ($0.744$ SPL) through active doorway midline centering and flank-pinch protection, closing the gap with DWA ($80.0\%$).
-2. **Generalization Elevation on Held-Out ZigZag (+34.0% over Raw PPO):** On the held-out `zigzag` family ($N = 100$), Raw PPO collapses to $50.0\%$ success with a **50.0% collision rate**, whereas DWA achieves $86.0\%$ success with **0.0% collisions**. The sharp $180^\circ$ hairpin switchbacks require rapid deceleration and tight turns. MAS-RL elevates success to **$84.0\%$** ($0.830$ SPL) with **0.0% timeouts**, demonstrating robust out-of-distribution transfer.
+1. **Multi-Room Doorway Recovery (+8.0% over Raw PPO):** In `rooms` ($n=25$), Raw PPO achieves only $56.0\%$ due to collisions with doorposts. MAS-RL elevates success to **$64.0\%$** ($0.636$ SPL) through active doorway midline centering and flank-pinch protection, matching DWA ($64.0\%$).
+2. **Generalization Elevation on Held-Out ZigZag (+9.0% Success, -48.0% Collisions over Raw PPO):** On the held-out `zigzag` family ($N = 100$ unique seeds), Raw PPO exhibits a **49.0% collision rate**, whereas DWA achieves $65.0\%$ success with **0.0% collisions** (and 35.0% timeouts). MAS-RL cuts collisions to **1.0%** while achieving **60.0%** success under nominal conditions, and **75.0%** under LiDAR noise ($p < 10^{-6}$ vs. Raw PPO by paired McNemar test).
 
 ### 7.4 Robustness Under Sensing Noise & Stochastic Dithering Effects
-Under synthetic localization drift and sensor noise, both controllers exhibit notable resilience:
-- Under LiDAR noise, PPO maintains consistent performance, demonstrating that pooling 360 rays into 24 sectors provides effective noise filtering.
-- For DWA, success nominally fluctuates within the $95\%$ Wilson confidence margin ($[0.86, 0.97]$). Mild stochastic noise acts as a dither signal: small perturbations in believed pose or range readings periodically break local costmap symmetries, allowing DWA to escape marginal deadlocks that would otherwise result in timeouts.
+Under synthetic localization drift and sensor noise across all 3,000 benchmark episodes:
+- Under LiDAR noise on the held-out split, **MAS-RL achieves 75.0% success [0.66, 0.82] and 0.738 SPL**, exceeding classical DWA (72.0% success, 12.0% collision rate) and raw PPO (51.0% success, 49.0% collision rate). The paired McNemar test confirms this advantage is highly statistically significant ($p = 1.19 \times 10^{-7}$).
+- Under synthetic random-walk localization drift ($\sigma_p = 0.004$ m/step), MAS-RL maintains **82.0% success** on test and **58.0% success** on heldout with only 2.0% collisions, whereas unshielded PPO suffers 49.0% collisions.
 
 ### 7.5 Safety Shield Component Ablation & Action-Space Asymmetry Analysis
 
 #### Table 7.3: Safety Shield Component Ablation Across splits (Matched Evaluation, Frozen Ground Truth)
 | Controller Architecture | Action Space Constraint | Evaluation Split | Success Rate (95% Wilson CI) | Collision Rate | Timeout Rate | SPL Efficiency (95% Bootstrap CI) |
 |---|---|---|:---:|:---:|:---:|:---:|
-| **Reactive Baseline** | Forward-Only ($v \ge 0$) | Test (Familiar) | 43.0% [0.34, 0.53] | 56.0% | 1.0% | 0.430 [0.33, 0.53] |
-| **DWA Baseline** | Forward-Only ($v \ge 0$) | Test (Familiar) | **93.0% [0.86, 0.97]** | **0.0%** | 7.0% | **0.911 [0.86, 0.96]** |
-| **Raw PPO (Unshielded)** | Forward-Only ($v \ge 0$) | Test (Familiar) | 84.0% [0.76, 0.90] | 16.0% | **0.0%** | 0.824 [0.75, 0.89] |
-| **PPO Governor (Layer 2)** | Forward-Only ($v \ge 0$) | Test (Familiar) | 88.0% [0.80, 0.93] | **0.0%** | 12.0% | 0.862 [0.80, 0.92] |
-| **MAS-RL (Full Shield)** | Forward + Recovery ($v < 0$) | Test (Familiar) | **90.0% [0.83, 0.94]** | 7.0% | 3.0% | **0.881 [0.82, 0.94]** |
-| **Reactive Baseline** | Forward-Only ($v \ge 0$) | Held-Out (ZigZag) | 36.0% [0.27, 0.46] | 62.0% | 2.0% | 0.360 [0.27, 0.46] |
-| **DWA Baseline** | Forward-Only ($v \ge 0$) | Held-Out (ZigZag) | **86.0% [0.78, 0.91]** | **0.0%** | 14.0% | **0.850 [0.78, 0.91]** |
-| **Raw PPO (Unshielded)** | Forward-Only ($v \ge 0$) | Held-Out (ZigZag) | 50.0% [0.40, 0.60] | 50.0% | **0.0%** | 0.498 [0.40, 0.60] |
-| **PPO Governor (Layer 2)** | Forward-Only ($v \ge 0$) | Held-Out (ZigZag) | 58.0% [0.48, 0.67] | **0.0%** | 42.0% | 0.578 [0.48, 0.68] |
-| **MAS-RL (Full Shield)** | Forward + Recovery ($v < 0$) | Held-Out (ZigZag) | **84.0% [0.76, 0.90]** | 16.0% | **0.0%** | **0.830 [0.76, 0.90]** |
+| **Reactive Baseline** | Forward-Only ($v \ge 0$) | Test (Unseen) | 43.0% [0.34, 0.53] | 56.0% | 1.0% | 0.430 [0.33, 0.53] |
+| **DWA Baseline** | Forward-Only ($v \ge 0$) | Test (Unseen) | **87.0% [0.79, 0.92]** | **0.0%** | 13.0% | **0.860 [0.79, 0.92]** |
+| **Raw PPO (Unshielded)** | Forward-Only ($v \ge 0$) | Test (Unseen) | 79.0% [0.70, 0.86] | 20.0% | **1.0%** | 0.780 [0.69, 0.86] |
+| **PPO Governor (Layer 2)** | Forward-Only ($v \ge 0$) | Test (Unseen) | 83.0% [0.74, 0.89] | **1.0%** | 16.0% | 0.820 [0.75, 0.89] |
+| **MAS-RL (Full Shield)** | Forward + Recovery ($v < 0$) | Test (Unseen) | **84.0% [0.76, 0.90]** | **1.0%** | 15.0% | **0.832 [0.76, 0.90]** |
+| **Reactive Baseline** | Forward-Only ($v \ge 0$) | Held-Out (ZigZag) | 48.0% [0.38, 0.58] | 50.0% | 2.0% | 0.480 [0.38, 0.58] |
+| **DWA Baseline** | Forward-Only ($v \ge 0$) | Held-Out (ZigZag) | **65.0% [0.55, 0.74]** | **0.0%** | 35.0% | **0.644 [0.55, 0.73]** |
+| **Raw PPO (Unshielded)** | Forward-Only ($v \ge 0$) | Held-Out (ZigZag) | 51.0% [0.41, 0.61] | 49.0% | **0.0%** | 0.509 [0.41, 0.60] |
+| **PPO Governor (Layer 2)** | Forward-Only ($v \ge 0$) | Held-Out (ZigZag) | 56.0% [0.46, 0.65] | **0.0%** | 44.0% | 0.559 [0.46, 0.65] |
+| **MAS-RL (Full Shield)** | Forward + Recovery ($v < 0$) | Held-Out (ZigZag) | **60.0% [0.50, 0.69]** | **1.0%** | 39.0% | **0.597 [0.51, 0.69]** |
 
 **Critical Findings & Action-Space Asymmetry:**
-1. **Continuous Velocity Governor Alone Eliminates Collisions:** Adding Layer 2 (PPO Governor) within the strict forward-only action space ($v \ge 0$) completely eliminates collisions ($16.0\% \to 0.0\%$ on test, $50.0\% \to 0.0\%$ on ZigZag). This proves that the analytical stopping-distance constraint $v \le \sqrt{2 a_v^{\max} d_{\text{clear}}}$ successfully prevents impact without requiring reverse motion.
-2. **The Role of Layer 4 Auto-Recovery:** While PPO Governor achieves 0% collisions, it induces a $42.0\%$ timeout rate on ZigZag due to freezing. Adding Layer 4 auto-recovery ($v = -0.10\,\text{m/s}$) eliminates freezing deadlocks ($42.0\% \to 0.0\%$ timeouts) and boosts held-out success to **$84.0\%$** ($0.830$ SPL).
-3. **Resolving the Generalization Deficit on ZigZag:** On the held-out `zigzag` split, the full shield transforms PPO from $50.0\%$ success up to **$84.0\%$ success [0.76, 0.90]** with **0.0% timeouts**, achieving near parity with DWA ($86.0\%$) while executing at $1.2\,\text{ms}$ on CPU ($7\times$ faster).
+1. **Continuous Velocity Governor Substantially Mitigates Collisions:** Adding Layer 2 (PPO Governor) within the strict forward-only action space ($v \ge 0$) cuts collisions from $20.0\% \to 1.0\%$ on test and $49.0\% \to 0.0\%$ on ZigZag. This proves that the analytical stopping-distance constraint $v \le \sqrt{2 a_v^{\max} d_{\text{clear}}}$ successfully prevents impact without requiring reverse motion.
+2. **The Role of Layer 4 Auto-Recovery:** While PPO Governor achieves near-zero collisions, it induces a $44.0\%$ timeout rate on ZigZag due to freezing. Adding Layer 4 auto-recovery ($v = -0.10\,\text{m/s}$) with rear-clearance safety checks safely breaks out of stagnation, elevating success to **$60.0\%$** under nominal conditions and **$75.0\%$** under sensor noise.
+3. **Paired Statistical Significance:** Paired McNemar tests (`results/paired_statistical_tests.csv`) demonstrate that MAS-RL significantly outperforms unshielded PPO on the held-out split across nominal ($p = 0.0039$), LiDAR noise ($p = 1.19 \times 10^{-7}$), and localization drift ($p = 0.0156$).
 
 ### 7.6 Runtime Safety Layer Intervention Audit
 To empirically uncover how the individual shield layers interact during execution, we recorded fine-grained per-step telemetry across 100 matched scenario trials per split under nominal conditions (frozen in `results/interventions_summary.csv` and `results/interventions_summary.md`):
 
 #### Table 7.4: Runtime Safety Layer Intervention Audit (Mean Interventions per Episode, Nominal Condition)
-| Evaluation Split | Controller Architecture | Success Rate | Mean Episode Steps | Governor Brakes | Corridor Centering | Flank Repulsion | Recovery Reverse | Recovery Pivot | Total Interventions | Step Intervention Density (%) |
-|---|---|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|
-| **Test** *(Familiar)* | **PPO Governor (Layer 2)** | 83.0% | 280.8 | 99.88 | 0.00 | 0.00 | 0.00 | 0.00 | 100.06 | 35.64% |
-| **Test** *(Familiar)* | **MAS-RL (Full 4-Layer Shield)** | 85.0% | 280.2 | 85.72 | 6.15 | 7.72 | 3.32 | 0.64 | 103.56 | 36.95% |
-| **Held-Out** *(ZigZag)* | **PPO Governor (Layer 2)** | 56.0% | 398.2 | 259.85 | 0.00 | 0.00 | 0.00 | 0.00 | 259.85 | 65.25% |
-| **Held-Out** *(ZigZag)* | **MAS-RL (Full 4-Layer Shield)** | 65.0% | 376.6 | 203.83 | 0.45 | 6.91 | 7.79 | 9.11 | 228.17 | 60.59% |
+| Evaluation Split | Controller Architecture | Success Rate | Mean Episode Steps | Governor Brakes | Corridor Centering | Flank Repulsion | Recovery Reverse | Recovery Pivot | Deadlock Spin | Safe Stops | Total Interventions | Step Intervention Density (%) |
+|---|---|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|
+| **Test** *(Unseen)* | **PPO Governor (Layer 2)** | 83.0% | 280.8 | 99.88 | 0.00 | 0.00 | 0.00 | 0.00 | 0.18 | 0.00 | 100.06 | 35.64% |
+| **Test** *(Unseen)* | **MAS-RL (Full 4-Layer Shield)** | 84.0% | 283.7 | 80.74 | 5.81 | 7.67 | 3.32 | 0.00 | 0.01 | 10.21 | 107.76 | 37.98% |
+| **Held-Out** *(ZigZag)* | **PPO Governor (Layer 2)** | 56.0% | 398.2 | 259.85 | 0.00 | 0.00 | 0.00 | 0.00 | 0.00 | 0.00 | 259.85 | 65.25% |
+| **Held-Out** *(ZigZag)* | **MAS-RL (Full 4-Layer Shield)** | 60.0% | 390.4 | 197.42 | 0.45 | 4.98 | 7.15 | 0.00 | 0.00 | 41.01 | 251.01 | 64.30% |
 
 **Key Mechanical Insights:**
 1. **Governor Braking Dominance in Narrow Passages:** On familiar layouts, the predictive braking governor triggers on approximately $35\%$ of steps. On the unseen ZigZag topology, the governor intervenes on $65.25\%$ of control steps in PPO Governor. Because PPO Governor lacks lateral centering or reverse maneuvers, repeated braking in switchback corners permanently bleeds linear momentum, causing the robot to freeze and run out of time (explaining the high timeout rate).

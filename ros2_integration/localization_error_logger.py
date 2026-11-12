@@ -58,6 +58,7 @@ class Logger(Node):
         self.align_n = int(P("align_samples", 20).value)
         rate = P("rate_hz", 10.0).value
         self.gt = None
+        self.gt_stamp = None
         self.T = None
         self.align_buf = []
         self.rows = []
@@ -69,21 +70,48 @@ class Logger(Node):
     def on_gt(self, m: Odometry) -> None:
         p = m.pose.pose
         self.gt = np.array([p.position.x, p.position.y, yaw_from_quat(p.orientation)])
+        self.gt_stamp = m.header.stamp
+
+    def estimate_se2_alignment(self, slam_pts: np.ndarray, gt_pts: np.ndarray) -> np.ndarray:
+        """Closed-form least-squares SE(2) transformation estimation over N samples."""
+        s_mean = np.mean(slam_pts[:, :2], axis=0)
+        g_mean = np.mean(gt_pts[:, :2], axis=0)
+
+        # Average orientation difference across all alignment samples
+        yaw_diffs = [wrap(s[2] - g[2]) for s, g in zip(slam_pts, gt_pts)]
+        yaw_avg = math.atan2(float(np.sum(np.sin(yaw_diffs))), float(np.sum(np.cos(yaw_diffs))))
+
+        # Optimal translation aligning centroids under optimal yaw rotation
+        c, s = math.cos(yaw_avg), math.sin(yaw_avg)
+        R = np.array([[c, -s], [s, c]])
+        t = s_mean - R @ g_mean
+        return np.array([t[0], t[1], yaw_avg])
 
     def tick(self) -> None:
         if self.gt is None:
             return
         try:
-            t = self.buf.lookup_transform("map", "base_link", rclpy.time.Time()).transform
+            # Query TF synchronized to ground truth message timestamp when available
+            if self.gt_stamp is not None:
+                t = self.buf.lookup_transform(
+                    "map", "base_link", self.gt_stamp, timeout=rclpy.duration.Duration(seconds=0.05)
+                ).transform
+            else:
+                t = self.buf.lookup_transform("map", "base_link", rclpy.time.Time()).transform
         except TransformException:
-            return
+            try:
+                t = self.buf.lookup_transform("map", "base_link", rclpy.time.Time()).transform
+            except TransformException:
+                return
+
         slam = np.array([t.translation.x, t.translation.y, yaw_from_quat(t.rotation)])
         if self.T is None:
             self.align_buf.append((slam, self.gt.copy()))
             if len(self.align_buf) >= self.align_n:
-                s, g = self.align_buf[-1]           # use the latest aligned pair
-                self.T = se2_mul(s, se2_inv(g))    # map <- world
-                self.get_logger().info(f"aligned frames, T_map_world = {self.T}")
+                slam_arr = np.array([pair[0] for pair in self.align_buf])
+                gt_arr = np.array([pair[1] for pair in self.align_buf])
+                self.T = self.estimate_se2_alignment(slam_arr, gt_arr)
+                self.get_logger().info(f"aligned frames over {len(self.align_buf)} samples, T_map_world = {self.T}")
             return
         gt_in_map = se2_mul(self.T, self.gt)
         e = slam - gt_in_map

@@ -110,14 +110,16 @@ def test_t7_stagnation_rear_blocked_pivot(filter):
     assert diag["intervention"] == "recovery_pivot"
 
 
-# T8: Repeated stagnation exhaustion -> capped reverse attempts
+# T8: Repeated stagnation exhaustion -> capped reverse attempts transitions to safe stop
 def test_t8_repeated_stagnation_caps_reverse(filter):
     filter.recovery_attempts = filter.cfg.max_recovery_attempts + 1
     filter.recovery_steps = 2
     sectors = make_clean_sectors(3.0)
     v_safe, w_safe, diag = filter.filter_command(0.02, 0.0, sectors, estimated_pose=(1.0, 1.0))
     assert v_safe == 0.0
-    assert diag["intervention"] == "recovery_pivot"
+    assert w_safe == 0.0
+    assert diag["intervention"] == "safe_stop"
+    assert diag["recovery_failed"] is True
 
 
 # T9: Localization drift -> uses estimated pose exclusively
@@ -169,3 +171,52 @@ def test_t13_action_interface_reverse_separation():
     assert v_cmd == 0.0
     v_cmd_max, _ = action_to_cmd([1.0, 0.0])
     assert v_cmd_max == pytest.approx(C.V_MAX, abs=1e-5)
+
+
+# T14: Sensor dropout / complete invalid LiDAR failsafe
+def test_t14_sensor_dropout_failsafe(filter):
+    # Complete sensor dropout: all sectors return NaN
+    invalid_sectors = np.full(24, np.nan)
+    v_safe, w_safe, diag = filter.filter_command(0.20, 0.5, invalid_sectors)
+    assert v_safe == 0.0
+    assert w_safe == 0.0
+    assert diag["intervention"] == "sensor_loss_stop"
+    assert diag["sensor_loss"] is True
+
+    # Severe sensor degradation (< 50% valid readings)
+    degraded_sectors = make_clean_sectors(3.0)
+    degraded_sectors[:15] = np.nan  # 15/24 = 62.5% invalid
+    v_safe, w_safe, diag = filter.filter_command(0.20, 0.5, degraded_sectors)
+    assert v_safe == 0.0
+    assert w_safe == 0.0
+    assert diag["intervention"] == "sensor_loss_stop"
+
+
+# T15: Finite recovery termination: robot halts instead of pivoting forever
+def test_t15_recovery_attempts_finite_termination():
+    # Use max_recovery_attempts = 2 for quick testing
+    cfg = SafetyConfig(max_recovery_attempts=2, recovery_duration=3)
+    f = NavigationSafetyFilter(cfg)
+
+    # Imminent collision with rear blocked (forces pivot)
+    sectors = make_clean_sectors(3.0)
+    sectors[12] = 0.23  # Imminent front collision
+    sectors[[22, 23, 0, 1, 2]] = 0.20  # Rear obstructed
+
+    # Cycle 1: recovery attempt 1
+    for _ in range(3):
+        v, w, diag = f.filter_command(0.15, 0.0, sectors, estimated_pose=(1.0, 1.0))
+        assert diag["intervention"] == "recovery_pivot"
+
+    # Cycle 2: recovery attempt 2
+    for _ in range(3):
+        v, w, diag = f.filter_command(0.15, 0.0, sectors, estimated_pose=(1.0, 1.0))
+        assert diag["intervention"] == "recovery_pivot"
+
+    # Cycle 3: attempt budget exceeded -> must transition to safe_stop with v=0, w=0
+    v, w, diag = f.filter_command(0.15, 0.0, sectors, estimated_pose=(1.0, 1.0))
+    assert v == 0.0
+    assert w == 0.0
+    assert diag["intervention"] == "safe_stop"
+    assert diag["recovery_failed"] is True
+

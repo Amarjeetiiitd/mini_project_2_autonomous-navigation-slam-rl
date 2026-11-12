@@ -1,17 +1,16 @@
 \begin{table}[h]
 \centering
-\caption{Per-Topology Success Rate Comparison across Environment Families ($n=25$ per familiar family, $N=100$ on held-out ZigZag, with 95\% Wilson Confidence Intervals).}
+\caption{Per-Topology Success Rate Comparison across Environment Families.}
 \label{tab:family_breakdown}
-\scriptsize
 \begin{tabular}{lccccc}
 \hline\hline
-\textbf{Controller Architecture} & \textbf{Open} ($n=25$) & \textbf{Corridor} ($n=25$) & \textbf{Clutter} ($n=25$) & \textbf{Rooms} ($n=25$) & \textbf{ZigZag (Held-out)} ($N=100$) \\
+\textbf{Controller} & \textbf{Open} & \textbf{Corridor} & \textbf{Clutter} & \textbf{Rooms} & \textbf{ZigZag (Held-out)} \\
 \hline
-Reactive Baseline & 0.64 [0.44, 0.80] & 0.64 [0.44, 0.80] & 0.36 [0.20, 0.55] & 0.16 [0.06, 0.35] & 0.38 [0.29, 0.48] \\
-DWA Classical Planner & \textbf{0.92 [0.75, 0.98]} & 0.80 [0.61, 0.91] & 0.88 [0.70, 0.96] & 0.32 [0.17, 0.51] & 0.66 [0.56, 0.75] \\
-Raw PPO Neural Policy & 0.88 [0.70, 0.96] & 0.84 [0.65, 0.94] & 0.88 [0.70, 0.96] & 0.44 [0.27, 0.63] & 0.43 [0.34, 0.53] \\
-PPO + Layers 1--3 Governor & 0.88 [0.70, 0.96] & 0.84 [0.65, 0.94] & 0.88 [0.70, 0.96] & 0.48 [0.30, 0.67] & 0.68 [0.58, 0.77] \\
-\textbf{MAS-RL (Shielded PPO, Ours)} & \textbf{0.92 [0.75, 0.98]} & \textbf{0.88 [0.70, 0.96]} & \textbf{0.92 [0.75, 0.98]} & \textbf{0.56 [0.37, 0.74]} & \textbf{0.78 [0.69, 0.85]} \\
+Reactive Baseline & 0.64 & 0.56 & 0.36 & 0.16 & 0.48 \\
+DWA + Global Plan & 0.96 & 0.96 & 0.92 & 0.64 & 0.65 \\
+Unshielded PPO & 0.88 & 0.92 & 0.80 & 0.56 & 0.51 \\
+PPO + Safety Governor (L1) & 0.92 & 0.96 & 0.80 & 0.64 & 0.56 \\
+\textbf{MAS-RL (Full 4-Layer)} & 0.96 & 0.96 & 0.80 & 0.64 & 0.60 \\
 \hline\hline
 \end{tabular}
 \end{table}

@@ -29,7 +29,9 @@ def export_latex_main_table(df: pd.DataFrame, out_path: Path):
     ctrl_map = {
         "reactive": "Reactive Baseline",
         "dwa_global": "DWA + Global Plan",
-        "ppo_waypoint": r"\textbf{PPO (Waypoint)}"
+        "ppo_waypoint": "Unshielded PPO",
+        "ppo_governor": "PPO + Safety Governor (L1)",
+        "mas_rl": r"\textbf{MAS-RL (Full 4-Layer)}"
     }
     
     for split in ["test", "heldout"]:
@@ -71,11 +73,13 @@ def export_latex_family_table(df_fam: pd.DataFrame, out_path: Path):
         r"\hline"
     ]
     
-    ctrls = ["reactive", "dwa_global", "ppo_waypoint"]
+    ctrls = ["reactive", "dwa_global", "ppo_waypoint", "ppo_governor", "mas_rl"]
     ctrl_map = {
-        "reactive": "Reactive",
-        "dwa_global": "DWA (Planner)",
-        "ppo_waypoint": r"\textbf{PPO (Ours)}"
+        "reactive": "Reactive Baseline",
+        "dwa_global": "DWA + Global Plan",
+        "ppo_waypoint": "Unshielded PPO",
+        "ppo_governor": "PPO + Safety Governor (L1)",
+        "mas_rl": r"\textbf{MAS-RL (Full 4-Layer)}"
     }
     
     fams = ["open", "corridor", "clutter", "rooms", "zigzag"]

@@ -1,0 +1,25 @@
+split,condition,comparator,mas_rl_success,base_success,b_mas_only_wins,c_base_only_wins,mcnemar_p_exact,success_diff_significant,mean_spl_diff,spl_diff_ci_lo,spl_diff_ci_hi,spl_diff_significant
+test,nominal,mas_rl vs reactive,0.84,0.43,41,0,9.094947017729282e-13,True,0.4015,0.3051,0.5023,True
+test,nominal,mas_rl vs dwa_global,0.84,0.87,4,7,0.548828125,False,-0.0288,-0.0901,0.0331,False
+test,nominal,mas_rl vs ppo_waypoint,0.84,0.79,6,1,0.125,False,0.0511,0.0044,0.1066,True
+test,nominal,mas_rl vs ppo_governor,0.84,0.83,2,1,1.0,False,0.0117,-0.0202,0.0443,False
+test,lidar_noise,mas_rl vs reactive,0.82,0.44,38,0,7.275957614183426e-12,True,0.3659,0.2708,0.4627,True
+test,lidar_noise,mas_rl vs dwa_global,0.82,0.89,2,9,0.0654296875,False,-0.0743,-0.1383,-0.0135,True
+test,lidar_noise,mas_rl vs ppo_waypoint,0.82,0.79,6,3,0.5078125,False,0.023,-0.0332,0.0815,False
+test,lidar_noise,mas_rl vs ppo_governor,0.82,0.84,3,5,0.7265625,False,-0.0264,-0.0806,0.0246,False
+test,loc_drift,mas_rl vs reactive,0.82,0.43,39,0,3.637978807091713e-12,True,0.383,0.2915,0.4835,True
+test,loc_drift,mas_rl vs dwa_global,0.82,0.87,4,9,0.266845703125,False,-0.0469,-0.117,0.0187,False
+test,loc_drift,mas_rl vs ppo_waypoint,0.82,0.79,4,1,0.375,False,0.0289,-0.0105,0.0768,False
+test,loc_drift,mas_rl vs ppo_governor,0.82,0.82,2,2,1.0,False,-0.001,-0.0404,0.0384,False
+heldout,nominal,mas_rl vs reactive,0.6,0.48,12,0,0.00048828125,True,0.1173,0.0581,0.1801,True
+heldout,nominal,mas_rl vs dwa_global,0.6,0.65,4,9,0.266845703125,False,-0.0473,-0.1177,0.0224,False
+heldout,nominal,mas_rl vs ppo_waypoint,0.6,0.51,9,0,0.00390625,True,0.0881,0.0387,0.1466,True
+heldout,nominal,mas_rl vs ppo_governor,0.6,0.56,5,1,0.21875,False,0.038,-0.0096,0.0856,False
+heldout,lidar_noise,mas_rl vs reactive,0.75,0.48,27,0,1.4901161193847656e-08,True,0.2609,0.1816,0.3472,True
+heldout,lidar_noise,mas_rl vs dwa_global,0.75,0.72,11,8,0.6476058959960938,False,0.0244,-0.0552,0.1068,False
+heldout,lidar_noise,mas_rl vs ppo_waypoint,0.75,0.51,24,0,1.1920928955078125e-07,True,0.2295,0.1531,0.3132,True
+heldout,lidar_noise,mas_rl vs ppo_governor,0.75,0.55,21,1,1.0967254638671875e-05,True,0.1895,0.1143,0.2723,True
+heldout,loc_drift,mas_rl vs reactive,0.58,0.48,10,0,0.001953125,True,0.0983,0.0474,0.1593,True
+heldout,loc_drift,mas_rl vs dwa_global,0.58,0.66,4,12,0.076812744140625,False,-0.0769,-0.1495,0.0015,False
+heldout,loc_drift,mas_rl vs ppo_waypoint,0.58,0.51,7,0,0.015625,True,0.0693,0.0288,0.1284,True
+heldout,loc_drift,mas_rl vs ppo_governor,0.58,0.55,4,1,0.375,False,0.0294,-0.0109,0.0785,False

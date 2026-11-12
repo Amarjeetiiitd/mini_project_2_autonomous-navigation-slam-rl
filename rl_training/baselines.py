@@ -271,6 +271,8 @@ def run_episode(env: NavEnv, ctrl: Controller, scenario=None, seed: int | None =
         out["recovery_reverses"] = st.get("recovery_reverses", 0)
         out["recovery_pivots"] = st.get("recovery_pivots", 0)
         out["deadlock_spins"] = st.get("deadlock_spins", 0)
+        out["sensor_loss_stops"] = st.get("sensor_loss_stops", 0)
+        out["safe_stops"] = st.get("safe_stops", 0)
         out["total_interventions"] = sum(
             st.get(k, 0)
             for k in (
@@ -280,6 +282,8 @@ def run_episode(env: NavEnv, ctrl: Controller, scenario=None, seed: int | None =
                 "recovery_reverses",
                 "recovery_pivots",
                 "deadlock_spins",
+                "sensor_loss_stops",
+                "safe_stops",
             )
         )
     else:
@@ -290,6 +294,8 @@ def run_episode(env: NavEnv, ctrl: Controller, scenario=None, seed: int | None =
             "recovery_reverses",
             "recovery_pivots",
             "deadlock_spins",
+            "sensor_loss_stops",
+            "safe_stops",
             "total_interventions",
         ):
             out[k] = 0
@@ -308,7 +314,8 @@ def evaluate_controller(ctrl: Controller, scenarios, env_kwargs: dict | None = N
                **{k: res[k] for k in ("layout_seed", "family", "success", "collision", "timeout",
                                       "steps", "time_s", "path_length", "shortest_len", "spl")}}
         for k in ("governor_brakes", "centering_interventions", "flank_repulsions",
-                  "recovery_reverses", "recovery_pivots", "deadlock_spins", "total_interventions"):
+                  "recovery_reverses", "recovery_pivots", "deadlock_spins",
+                  "sensor_loss_stops", "safe_stops", "total_interventions"):
             if k in res:
                 row[k] = res[k]
         rows.append(row)
