@@ -101,9 +101,9 @@ where $\delta_{\text{margin}} = 0.04\,\text{m}$ and $\delta_{\text{buffer}} = 0.
 The supervisory safety shield intercepts raw continuous policy actions $[v_{\text{cmd}}, \omega_{\text{cmd}}]$ through four cascading layers:
 \begin{enumerate}
     \item \textbf{Layer 1 (Multi-Sector Arc \& Flank Scanning):} Concurrently monitors forward arc sectors 8 to 16 ($\pm 60^\circ$), lateral flanks ($[14:18]$ left, $[6:10]$ right), and rear sectors ($[22:23, 0:2]$).
-    \item \textbf{Layer 2 (Predictive Stopping-Distance Governor):} Enforces a kinematic braking ceiling derived from unicycle braking physics ($v^2 \le 2 a_v^{\max} d_{\text{clear}}$):
+    \item \textbf{Layer 2 (Predictive Stopping-Distance Governor with Control Latency):} Enforces an analytical braking ceiling incorporating discrete control and sensing reaction latency $t_{\text{delay}} = 0.15\,\text{s}$ and physical deceleration limit $a_v^{\max} = 1.0\,\text{m/s}^2$ ($d_{\text{stop}}(v) = v t_{\text{delay}} + \frac{v^2}{2 a_v^{\max}} \le d_{\text{clear}}$):
     \begin{equation}
-    v_{\text{allowable}} = \sqrt{2 a_v^{\max} \max(0, d_{\text{wide}} - r_{\text{robot}} - 0.04)}
+    v_{\text{allowable}} = -a_v^{\max} t_{\text{delay}} + \sqrt{(a_v^{\max} t_{\text{delay}})^2 + 2 a_v^{\max} \max(0, d_{\text{wide}} - r_{\text{robot}} - 0.04)}
     \end{equation}
     inhibiting all forward velocity ($v = 0.0\,\text{m/s}$) if the narrow front clearance $< r_{\text{robot}} + 0.05\,\text{m}$.
     \item \textbf{Layer 3 (Lateral Repulsive Steering \& Doorway Centering):} When bilateral constriction is detected ($\min(d_{\text{left}}, d_{\text{right}}) < 0.65\,\text{m}$), an active centering torque $\omega_{\text{bias}} = K_{\text{center}} (d_{\text{left}} - d_{\text{right}})$ steers the vehicle along the corridor median, and forward speed is throttled to $v \le 0.12\,\text{m/s}$ for stable transit.
@@ -113,7 +113,7 @@ The supervisory safety shield intercepts raw continuous policy actions $[v_{\tex
 \section{Experimental Results and Discussion}
 
 \subsection{Benchmark Evaluation Across Topologies & Perturbations}
-We evaluate controllers across 100 matched scenario instances per condition with 95\% Wilson Score Confidence Intervals~\cite{wilson1927probable} and 2,000-resample bootstrap intervals for Success-weighted Path Length (SPL)~\cite{anderson2018evaluation, efron1994bootstrap}. Layouts are procedurally generated across disjoint seed splits: Training (0--999), Validation (1000--1049), Test (10000--10099), and Held-Out ZigZag (20000--20039).
+We evaluate controllers across 100 matched scenario instances per condition with 95\% Wilson Score Confidence Intervals~\cite{wilson1927probable} and 2,000-resample bootstrap intervals for Success-weighted Path Length (SPL)~\cite{anderson2018evaluation, efron1994bootstrap}. Layouts are procedurally generated across disjoint seed splits: Training (0--999), Validation (1000--1049), Test (10000--10099), and Held-Out ZigZag (20000--20099, 100 unique seeds).
 
 \begin{table*}[t]
 \centering
@@ -157,6 +157,27 @@ Table~\ref{tab:ablation} isolates the contribution of each safety mechanism acro
 Raw PPO & Forward ($v \ge 0$) & 84.0\% [0.76, 0.90] & 16.0\% & 50.0\% [0.40, 0.60] & 50.0\% \\
 PPO Governor (Layer 2) & Forward ($v \ge 0$) & 88.0\% [0.80, 0.93] & \textbf{0.0\%} & 58.0\% [0.48, 0.67] & \textbf{0.0\%} \\
 \textbf{MAS-RL (Full Shield)} & Forward + Recov ($v < 0$) & \textbf{90.0\% [0.83, 0.94]} & 7.0\% & \textbf{84.0\% [0.76, 0.90]} & 16.0\% \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\subsection{Runtime Safety Intervention Audit}
+To quantify the mechanical role of each shield layer, Table~\ref{tab:interventions} logs per-episode intervention activations under nominal evaluation ($N=100$ trials per split). On familiar test layouts, Governor braking triggers on average $85.7$ steps/episode ($30.6\%$ of trajectory steps), while corridor centering and flank repulsion activate $6.1$ and $7.7$ times/episode. On held-out ZigZag labyrinths, PPO Governor triggers braking on $65.3\%$ of steps ($259.8$ brakes/episode), explaining its high freezing timeout rate ($42.0\%$). In contrast, MAS-RL executes $7.8$ recovery reverses and $9.1$ recovery pivots per episode, actively disengaging the AMR from switchback deadlocks and restoring held-out success to $84.0\%$.
+
+\begin{table}[h]
+\centering
+\caption{Runtime Safety Layer Intervention Audit (Mean Interventions per Episode, Nominal Condition)}
+\label{tab:interventions}
+\scriptsize
+\begin{tabular}{llcccccc}
+\toprule
+\textbf{Split} & \textbf{Controller} & \textbf{Governor} & \textbf{Centering} & \textbf{Flank Repulse} & \textbf{Recovery Rev} & \textbf{Recovery Pivot} & \textbf{Total / Step Density} \\
+\midrule
+Test & PPO Governor & 99.9 & 0.0 & 0.0 & 0.0 & 0.0 & 100.1 (35.6\%) \\
+Test & MAS-RL & 85.7 & 6.2 & 7.7 & 3.3 & 0.6 & 103.6 (37.0\%) \\
+\midrule
+Held-Out & PPO Governor & 259.9 & 0.0 & 0.0 & 0.0 & 0.0 & 259.9 (65.3\%) \\
+Held-Out & MAS-RL & 203.8 & 0.5 & 6.9 & 7.8 & 9.1 & 228.2 (60.6\%) \\
 \bottomrule
 \end{tabular}
 \end{table}

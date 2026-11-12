@@ -621,17 +621,30 @@ Under synthetic localization drift and sensor noise, both controllers exhibit no
 2. **The Role of Layer 4 Auto-Recovery:** While PPO Governor achieves 0% collisions, it induces a $42.0\%$ timeout rate on ZigZag due to freezing. Adding Layer 4 auto-recovery ($v = -0.10\,\text{m/s}$) eliminates freezing deadlocks ($42.0\% \to 0.0\%$ timeouts) and boosts held-out success to **$84.0\%$** ($0.830$ SPL).
 3. **Resolving the Generalization Deficit on ZigZag:** On the held-out `zigzag` split, the full shield transforms PPO from $50.0\%$ success up to **$84.0\%$ success [0.76, 0.90]** with **0.0% timeouts**, achieving near parity with DWA ($86.0\%$) while executing at $1.2\,\text{ms}$ on CPU ($7\times$ faster).
 
-### 7.6 Verification of Dynamic Impasse Rerouting & Edge-Grazing Elimination
-To empirically evaluate the dynamic impasse and clearance-weighted planning engines, we conducted stress tests on the multi-room apartment topology (`rooms`, seed 42) with an obstacle block placed directly adjacent to the target destination:
-- **Baseline Behavior (Unconstrained Dijkstra):**
-  - Dijkstra selected the upper passage (gap width $0.82\,\text{m}$) over the southern room corridor (gap width $2.66\,\text{m}$) because it was $0.5\,\text{m}$ shorter in Euclidean distance.
-  - The robot entered the narrow slit, grazed the obstacle corner, triggered boundary hold ($v = 0.0\,\text{m/s}$), and oscillated indefinitely in a local minimum for $> 1500$ steps ($> 150\,\text{s}$).
-- **Enhanced Stack Behavior (Clearance-Weighted + Dynamic Impasse Rerouting):**
-  - **Medial Centering:** With clearance cost active, the planner naturally evaluates the wider corridor through the lower room as lower total cost, or upon entering a pinch, the dynamic impasse detector detects the stall within 4 steps ($0.4\,\text{s}$).
-  - **Alternative Discovery:** The dynamic impasse block ($r = 0.45\,\text{m}$) immediately redirects the global path south through the $2.66\,\text{m}$ wide room.
-  - **Collision-Free Arrival:** The robot disengages cleanly from the pinch, executes the southern detour, and reaches the target goal in **$11.4\,\text{seconds}$ ($114$ steps) with $0$ collisions**.
+### 7.6 Runtime Safety Layer Intervention Audit
+To empirically uncover how the individual shield layers interact during execution, we recorded fine-grained per-step telemetry across 100 matched scenario trials per split under nominal conditions (frozen in `results/interventions_summary.csv` and `results/interventions_summary.md`):
 
-### 7.7 PPO Training Dynamics & Generalization Gap
+#### Table 7.4: Runtime Safety Layer Intervention Audit (Mean Interventions per Episode, Nominal Condition)
+| Evaluation Split | Controller Architecture | Success Rate | Mean Episode Steps | Governor Brakes | Corridor Centering | Flank Repulsion | Recovery Reverse | Recovery Pivot | Total Interventions | Step Intervention Density (%) |
+|---|---|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|
+| **Test** *(Familiar)* | **PPO Governor (Layer 2)** | 83.0% | 280.8 | 99.88 | 0.00 | 0.00 | 0.00 | 0.00 | 100.06 | 35.64% |
+| **Test** *(Familiar)* | **MAS-RL (Full 4-Layer Shield)** | 85.0% | 280.2 | 85.72 | 6.15 | 7.72 | 3.32 | 0.64 | 103.56 | 36.95% |
+| **Held-Out** *(ZigZag)* | **PPO Governor (Layer 2)** | 56.0% | 398.2 | 259.85 | 0.00 | 0.00 | 0.00 | 0.00 | 259.85 | 65.25% |
+| **Held-Out** *(ZigZag)* | **MAS-RL (Full 4-Layer Shield)** | 65.0% | 376.6 | 203.83 | 0.45 | 6.91 | 7.79 | 9.11 | 228.17 | 60.59% |
+
+**Key Mechanical Insights:**
+1. **Governor Braking Dominance in Narrow Passages:** On familiar layouts, the predictive braking governor triggers on approximately $35\%$ of steps. On the unseen ZigZag topology, the governor intervenes on $65.25\%$ of control steps in PPO Governor. Because PPO Governor lacks lateral centering or reverse maneuvers, repeated braking in switchback corners permanently bleeds linear momentum, causing the robot to freeze and run out of time (explaining the high timeout rate).
+2. **The Unstuck Function of Reverse-and-Pivot Recovery:** In MAS-RL, Layer 4 triggers an average of $7.79$ recovery reverses and $9.11$ in-place pivots per episode on held-out ZigZag. These targeted backward backing maneuvers disengage the chassis from tight wall pinch points, allowing the PPO policy to re-orient toward open space and complete the mission.
+
+### 7.7 Pathing Mechanics: Pure Shortest-Path Planning vs. Dynamic Impasse Detours
+In earlier prototype iterations of the graphical mission control interface, dynamic impasse markers (`⚠️ IMPASSE` disks) were stamped onto the clearance grid whenever the vehicle lingered or paused near a doorway. While intended to force alternative hallway discovery, empirical testing revealed a pathological failure mode: **doorway occlusion loops**. In floorplans where only a single portal connected adjacent rooms, dropping impasse circles inside or directly in front of the doorway increased traversal cost to near-lethal levels, forcing Dijkstra wave-front propagation to divert the global route around the perimeter of the building through multiple remote rooms in giant circular loops.
+
+To eliminate these unnatural detour loops:
+1. **Elimination of Artificial Impasse Stamping:** The path planning engine now runs pure 8-connected Dijkstra wave-front propagation directly over the inflated physical occupancy grid, augmented only by a mild quadratic medial-axis clearance cost ($\alpha_{\text{clear}} = 0.35$).
+2. **Line-of-Sight String Pulling ($\Theta^*$-Style Pruning):** Raw grid paths are smoothed via greedy raycasting. intermediate waypoints are pruned whenever an unobstructed Euclidean chord exists with safe chassis clearance ($\ge r_{\text{robot}} + 0.04\,\text{m}$), producing minimal-length, straight-line ribbons.
+3. **Adaptive Lookahead Portal Contracting:** When approaching doorways ($D_{\text{clear}} < r_{\text{robot}} + 0.12\,\text{m}$), lookahead is dynamically shortened to ensure orthogonal portal entry, preventing corner clipping while eliminating looping detours entirely.
+
+### 7.8 PPO Training Dynamics & Generalization Gap
 Policy training was conducted across $1{,}000{,}000$ total environment interaction steps using $N_{\text{envs}} = 2$ vectorized parallel Gymnasium environments ($500{,}000$ steps per environment). During training, evaluation checkpoints were logged every $10{,}000$ steps using `EvalCallback` over the 50 validation layouts (seeds 1000–1049):
 - The training curve reveals that mean episode reward rises rapidly over the first $200{,}000$ steps, plateauing around $600{,}000$ steps as the policy converges to a stable forward speed ($v \approx 0.22\text{--}0.26\,\text{m/s}$).
 - **Training vs. Testing Performance Gap:** During training, actions are sampled stochastically from the Gaussian policy $\mathbf{a}_t \sim \mathcal{N}(\boldsymbol{\mu}(\mathbf{s}_t), \boldsymbol{\Sigma})$, introducing exploration noise that leads to occasional collisions; during benchmark evaluation, the policy operates deterministically using the distribution mean $\mathbf{a}_t = \boldsymbol{\mu}(\mathbf{s}_t)$, resulting in higher success rates and cleaner trajectories.

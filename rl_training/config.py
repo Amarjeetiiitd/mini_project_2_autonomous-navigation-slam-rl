@@ -48,7 +48,7 @@ START_CLEARANCE = ROBOT_RADIUS + 0.15  # clearance for sampled starts/goals
 TRAIN_SEEDS = tuple(range(0, 1000))
 VAL_SEEDS = tuple(range(1000, 1050))
 TEST_SEEDS = tuple(range(10000, 10100))
-HELDOUT_SEEDS = tuple(range(20000, 20040))   # held-out *family* ("zigzag")
+HELDOUT_SEEDS = tuple(range(20000, 20100))   # held-out *family* ("zigzag", 100 unique seeds)
 
 # --------------------------------------------------------------- rewards
 R_PROGRESS = 10.0                   # per metre of geodesic progress

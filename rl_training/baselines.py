@@ -263,6 +263,36 @@ def run_episode(env: NavEnv, ctrl: Controller, scenario=None, seed: int | None =
         if term or trunc:
             break
     out = dict(info)
+    if hasattr(ctrl, "filter") and hasattr(ctrl.filter, "stats"):
+        st = ctrl.filter.stats
+        out["governor_brakes"] = st.get("governor_brakes", 0)
+        out["centering_interventions"] = st.get("centering_interventions", 0)
+        out["flank_repulsions"] = st.get("flank_repulsions", 0)
+        out["recovery_reverses"] = st.get("recovery_reverses", 0)
+        out["recovery_pivots"] = st.get("recovery_pivots", 0)
+        out["deadlock_spins"] = st.get("deadlock_spins", 0)
+        out["total_interventions"] = sum(
+            st.get(k, 0)
+            for k in (
+                "governor_brakes",
+                "centering_interventions",
+                "flank_repulsions",
+                "recovery_reverses",
+                "recovery_pivots",
+                "deadlock_spins",
+            )
+        )
+    else:
+        for k in (
+            "governor_brakes",
+            "centering_interventions",
+            "flank_repulsions",
+            "recovery_reverses",
+            "recovery_pivots",
+            "deadlock_spins",
+            "total_interventions",
+        ):
+            out[k] = 0
     if record:
         out["traj"] = np.array(traj)
     return out
@@ -274,9 +304,14 @@ def evaluate_controller(ctrl: Controller, scenarios, env_kwargs: dict | None = N
     rows = []
     for scn in scenarios:
         res = run_episode(env, ctrl, scn, seed=scn.sid)
-        rows.append({"controller": label or ctrl.name, "scenario": scn.sid,
-                     **{k: res[k] for k in ("layout_seed", "family", "success", "collision", "timeout",
-                                            "steps", "time_s", "path_length", "shortest_len", "spl")}})
+        row = {"controller": label or ctrl.name, "scenario": scn.sid,
+               **{k: res[k] for k in ("layout_seed", "family", "success", "collision", "timeout",
+                                      "steps", "time_s", "path_length", "shortest_len", "spl")}}
+        for k in ("governor_brakes", "centering_interventions", "flank_repulsions",
+                  "recovery_reverses", "recovery_pivots", "deadlock_spins", "total_interventions"):
+            if k in res:
+                row[k] = res[k]
+        rows.append(row)
     return pd.DataFrame(rows)
 
 

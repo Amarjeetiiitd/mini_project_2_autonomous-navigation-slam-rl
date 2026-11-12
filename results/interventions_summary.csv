@@ -1,0 +1,5 @@
+split,controller,episodes,success_rate,collision_rate,mean_steps,governor_brakes,centering,flank_repulsions,recovery_reverses,recovery_pivots,deadlock_spins,total_interventions,intervention_density_pct
+test,ppo_governor,100,0.83,0.01,280.8,99.88,0.0,0.0,0.0,0.0,0.18,100.06,35.64
+test,mas_rl,100,0.85,0.01,280.2,85.72,6.15,7.72,3.32,0.64,0.01,103.56,36.95
+heldout,ppo_governor,100,0.56,0.0,398.2,259.85,0.0,0.0,0.0,0.0,0.0,259.85,65.25
+heldout,mas_rl,100,0.65,0.01,376.6,203.83,0.45,6.91,7.79,9.11,0.08,228.17,60.59

@@ -1,19 +1,12 @@
-"""Unified Robotics Safety Filter and Predictive Stopping-Distance Governor.
+"""Autonomous Mobile Robot Navigation Safety Architecture.
 
-Shared across Track A (Gymnasium Benchmarks, baselines.py, interactive_ui.py)
-and Track B (ROS 2 Jazzy node ros2_integration/policy_node.py).
-
-Guarantees 100% parity between simulation benchmarking and physical robot deployment:
-1. Layer 1: Multi-sector LiDAR scan monitoring (forward arc, flanks, rear).
-2. Layer 2: Predictive Stopping-Distance Governor derived from kinematic braking physics (v^2 <= 2*a*d).
-3. Layer 3: Lateral repulsive potential steering & active doorway/corridor midline centering.
-4. Layer 4: Autonomous stagnation watchdog and verified rear-clearance reverse-and-pivot recovery state machine.
-
-CRITICAL RESEARCH DESIGN:
-- Stagnation is tracked using ESTIMATED/BELIEVED pose (odometry or SLAM pose), NEVER ground-truth simulation pose!
-- Reverse velocity commands (v < 0) are strictly conditioned on rear LiDAR clearance (> ROBOT_RADIUS + 0.06m).
-  If the rear is obstructed, the robot executes an in-place rotation pivot toward the maximum clearance sector.
-- Post-policy supervisory filtering preserves the declared Gymnasium action space contract for the nominal RL actor.
+Unified supervisory runtime safety filter providing:
+1. Multi-sector forward arc collision forecasting (sectors 8 to 16, +/-60 deg).
+2. Predictive stopping-distance governor incorporating discrete-time reaction latency:
+      d_stop(v) = v * t_delay + v^2 / (2 * a_brake) <= d_clearance
+      v_allowable = -a * t_delay + sqrt((a * t_delay)^2 + 2 * a * d_clearance)
+3. Lateral repulsive potential field steering & doorway midline centering.
+4. Non-privileged anti-deadlock watchdog with rear-clearance-verified recovery.
 """
 from __future__ import annotations
 
@@ -32,7 +25,8 @@ class SafetyConfig:
     robot_radius: float = C.ROBOT_RADIUS           # 0.22 m
     max_linear_accel: float = C.A_V_MAX           # 1.0 m/s^2
     max_angular_accel: float = C.A_W_MAX          # 3.2 rad/s^2
-    stop_distance_margin: float = 0.04            # m, safety buffer over robot radius
+    reaction_time: float = 0.15                   # s, control/sensing latency delay (t_delay)
+    stop_distance_margin: float = 0.04            # m, safety buffer over robot radius (d_margin)
     corridor_detect_dist: float = 0.65            # m, threshold to detect bilateral constriction
     centering_gain: float = 1.15                  # P-gain for doorway midline tracking
     flank_repulse_dist: float = 0.45              # m, threshold for single-wall repulsion
@@ -40,6 +34,7 @@ class SafetyConfig:
     stagnation_disp_threshold: float = 0.04       # m, displacement below which stagnation triggers
     reverse_speed: float = -0.10                  # m/s, recovery backup velocity
     recovery_duration: int = 8                    # control steps (~0.8 s)
+    max_recovery_attempts: int = 4                # maximum repeated recovery cycles before timeout
     enable_governor: bool = True                  # Layer 2: Stopping-distance braking ceiling
     enable_centering: bool = True                 # Layer 3: Lateral repulsion & doorway centering
     enable_recovery: bool = True                  # Layer 4: Stagnation watchdog & reverse recovery
@@ -52,15 +47,34 @@ class NavigationSafetyFilter:
         self.cfg = config or SafetyConfig()
         self.recovery_steps = 0
         self.recovery_direction = 1.0
+        self.recovery_attempts = 0
+        self.last_recovery_pos: tuple[float, float] | None = None
         self.history: list[tuple[float, float]] = []
         self.last_intervention = "none"
+        self.stats = {
+            "governor_brakes": 0,
+            "centering_interventions": 0,
+            "flank_repulsions": 0,
+            "recovery_reverses": 0,
+            "recovery_pivots": 0,
+            "deadlock_spins": 0,
+            "total_steps": 0,
+        }
 
     def reset(self) -> None:
-        """Reset internal recovery state machine and pose history between episodes."""
+        """Reset internal recovery state machine, pose history, and intervention stats between episodes."""
         self.recovery_steps = 0
         self.recovery_direction = 1.0
+        self.recovery_attempts = 0
+        self.last_recovery_pos = None
         self.history.clear()
         self.last_intervention = "none"
+        self.reset_stats()
+
+    def reset_stats(self) -> None:
+        """Reset cumulative intervention audit counters."""
+        for k in self.stats:
+            self.stats[k] = 0
 
     def filter_command(
         self,
@@ -86,6 +100,10 @@ class NavigationSafetyFilter:
         ranges = np.asarray(sector_ranges, dtype=np.float64)
         if ranges.shape[0] != C.N_SECTORS:
             raise ValueError(f"Expected {C.N_SECTORS} LiDAR sectors, got {ranges.shape[0]}")
+
+        # Sanitize sensor ranges: non-finite values (NaN / Inf) fall back safely to RANGE_MAX
+        ranges = np.where(np.isfinite(ranges), ranges, C.RANGE_MAX)
+        ranges = np.clip(ranges, 0.0, C.RANGE_MAX)
 
         # Sector indexing convention:
         # Sector 12 is 0 rad (straight ahead)
@@ -119,6 +137,7 @@ class NavigationSafetyFilter:
             "min_overall": min_overall,
             "is_stagnated": False,
             "recovery_active": self.recovery_steps > 0,
+            "recovery_attempts": self.recovery_attempts,
         }
 
         # -------------------------------------------------------------
@@ -137,6 +156,12 @@ class NavigationSafetyFilter:
                     if disp < self.cfg.stagnation_disp_threshold:
                         diag["is_stagnated"] = True
 
+                # Reset recovery attempt count if robot has achieved net displacement >= 0.20 m
+                if self.last_recovery_pos is not None:
+                    if math.hypot(ex - self.last_recovery_pos[0], ey - self.last_recovery_pos[1]) >= 0.20:
+                        self.recovery_attempts = 0
+                        self.last_recovery_pos = None
+
             # Trigger condition: imminent collision or forward freeze stagnation
             front_is_blocked = min_front < (self.cfg.robot_radius + 0.05)
             imminent_collision = min_overall < (self.cfg.robot_radius + 0.015)
@@ -144,6 +169,9 @@ class NavigationSafetyFilter:
 
             if (imminent_collision or stagnated_freeze) and self.recovery_steps == 0:
                 self.recovery_steps = self.cfg.recovery_duration
+                self.recovery_attempts += 1
+                if estimated_pose is not None:
+                    self.last_recovery_pos = (float(estimated_pose[0]), float(estimated_pose[1]))
                 closest_idx = int(np.argmin(ranges))
                 self.recovery_direction = -1.0 if closest_idx >= 12 else 1.0
                 self.history.clear()
@@ -152,13 +180,15 @@ class NavigationSafetyFilter:
                 self.recovery_steps -= 1
                 diag["recovery_active"] = True
 
-                # Verified rear clearance check before commanding reverse motion
-                if rear_clear:
-                    safe_v = self.cfg.reverse_speed
+                # Verified rear clearance check & attempt budget
+                if rear_clear and self.recovery_attempts <= self.cfg.max_recovery_attempts:
+                    rear_clearance = max(0.0, min_rear - self.cfg.robot_radius - self.cfg.stop_distance_margin)
+                    v_rev_allowable = math.sqrt(2.0 * self.cfg.max_linear_accel * rear_clearance)
+                    safe_v = -min(abs(self.cfg.reverse_speed), v_rev_allowable)
                     safe_w = 0.85 * self.recovery_direction
                     diag["intervention"] = "recovery_reverse"
                 else:
-                    # Rear is obstructed: execute zero-linear in-place pivot rotation
+                    # Rear is obstructed or attempts exhausted: execute zero-linear in-place pivot rotation
                     safe_v = 0.0
                     safe_w = 0.95 * self.recovery_direction
                     diag["intervention"] = "recovery_pivot"
@@ -166,6 +196,11 @@ class NavigationSafetyFilter:
                 diag["v_safe"] = safe_v
                 diag["w_safe"] = safe_w
                 self.last_intervention = diag["intervention"]
+                self.stats["total_steps"] += 1
+                if diag["intervention"] == "recovery_reverse":
+                    self.stats["recovery_reverses"] += 1
+                else:
+                    self.stats["recovery_pivots"] += 1
                 return safe_v, safe_w, diag
 
         # -------------------------------------------------------------
@@ -176,8 +211,16 @@ class NavigationSafetyFilter:
 
         if self.cfg.enable_governor:
             clearance = max(0.0, min_wide - self.cfg.robot_radius - self.cfg.stop_distance_margin)
-            # Analytical kinematic braking limit: v <= sqrt(2 * a * d)
-            v_allowable = math.sqrt(2.0 * self.cfg.max_linear_accel * clearance)
+            a = self.cfg.max_linear_accel
+            t_delay = self.cfg.reaction_time
+            # Realistic stopping distance model: d_stop(v) = v * t_delay + v^2 / (2 * a) <= clearance
+            # Solving v^2 + 2 * a * t_delay * v - 2 * a * clearance = 0
+            if clearance > 0.0:
+                v_allowable = -a * t_delay + math.sqrt((a * t_delay) ** 2 + 2.0 * a * clearance)
+                v_allowable = max(0.0, v_allowable)
+            else:
+                v_allowable = 0.0
+
             if v > v_allowable:
                 v = v_allowable
                 diag["intervention"] = "governor_brake"
@@ -228,4 +271,16 @@ class NavigationSafetyFilter:
         diag["v_safe"] = v
         diag["w_safe"] = w
         self.last_intervention = diag["intervention"]
+
+        # Cumulative intervention audit counters
+        self.stats["total_steps"] += 1
+        if diag["intervention"] == "governor_brake":
+            self.stats["governor_brakes"] += 1
+        elif diag["intervention"] == "centering":
+            self.stats["centering_interventions"] += 1
+        elif diag["intervention"] == "flank_repulse":
+            self.stats["flank_repulsions"] += 1
+        elif diag["intervention"] == "deadlock_spin":
+            self.stats["deadlock_spins"] += 1
+
         return v, w, diag
