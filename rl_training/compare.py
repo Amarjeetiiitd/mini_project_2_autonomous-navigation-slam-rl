@@ -21,13 +21,20 @@ come from the ROS 2 / Gazebo runs (see docs/EXPERIMENTS.md).
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
+import subprocess
+import sys
 from datetime import datetime, timezone
 from pathlib import Path
 
+import gymnasium
 import matplotlib
 import numpy as np
 import pandas as pd
+import scipy
+import torch
+import stable_baselines3
 
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt  # noqa: E402
@@ -37,9 +44,115 @@ from .baselines import (DWAController, GovernorPPOController, MASRLController,
                         PPOBrakingRecoveryController, PPOBrakingSteeringController,
                         ReactiveController, evaluate_controller)  # noqa: E402
 from .evaluate import load_policy  # noqa: E402
-from .metrics import (clustered_bootstrap_ci, mcnemar_test, paired_bootstrap_ci,
-                      summarize)  # noqa: E402
+from .metrics import (clustered_bootstrap_ci, holm_bonferroni_correction,
+                      mcnemar_test, paired_bootstrap_ci, summarize)  # noqa: E402
 from .scenarios import make_scenarios  # noqa: E402
+
+
+def compute_sha256(data: bytes | str) -> str:
+    if isinstance(data, str):
+        data = data.encode("utf-8")
+    return hashlib.sha256(data).hexdigest()
+
+
+def get_file_sha256(path: Path | str | None) -> str | None:
+    if not path:
+        return None
+    p = Path(path)
+    if not p.is_file():
+        return None
+    h = hashlib.sha256()
+    with open(p, "rb") as f:
+        while chunk := f.read(65536):
+            h.update(chunk)
+    return h.hexdigest()
+
+
+def get_git_info() -> tuple[str, bool]:
+    try:
+        commit = subprocess.check_output(["git", "rev-parse", "HEAD"], stderr=subprocess.DEVNULL, text=True).strip()
+        status = subprocess.check_output(["git", "status", "--porcelain"], stderr=subprocess.DEVNULL, text=True).strip()
+        return commit, len(status) > 0
+    except Exception:
+        return "unknown", False
+
+
+def build_experiment_fingerprint(
+    model_path: str | None,
+    episodes: int,
+    splits: list[str],
+    conditions: list[str],
+    controllers: list[str],
+    scenarios_by_split: dict,
+) -> dict:
+    git_commit, git_dirty = get_git_info()
+    model_hash = get_file_sha256(model_path)
+
+    manifest_hashes = {}
+    unique_seeds_by_split = {}
+    for split, scns in scenarios_by_split.items():
+        seed_str = ",".join(str(s.layout_seed) for s in scns)
+        manifest_hashes[split] = compute_sha256(seed_str)
+        unique_seeds_by_split[split] = len(set(s.layout_seed for s in scns))
+
+    cond_params = {k: C.CONDITIONS[k] for k in sorted(conditions) if k in C.CONDITIONS}
+    kinematics = {
+        "robot_radius": float(C.ROBOT_RADIUS),
+        "v_max": float(C.V_MAX),
+        "w_max": float(C.W_MAX),
+        "a_v_max": float(C.A_V_MAX),
+        "a_w_max": float(C.A_W_MAX),
+        "dt": float(C.DT),
+        "n_sectors": int(C.N_SECTORS),
+        "range_max": float(C.RANGE_MAX),
+    }
+    safety_config = {
+        "reaction_time_s": 0.15,
+        "max_recovery_attempts": 4,
+        "min_sensor_coverage": 0.50,
+        "forward_coverage_min": 0.50,
+    }
+    dependencies = {
+        "python": sys.version.split()[0],
+        "numpy": np.__version__,
+        "pandas": pd.__version__,
+        "scipy": scipy.__version__,
+        "gymnasium": getattr(gymnasium, "__version__", "unknown"),
+        "torch": getattr(torch, "__version__", "unknown"),
+        "stable_baselines3": getattr(stable_baselines3, "__version__", "unknown"),
+    }
+
+    canonical_repr = {
+        "model_sha256": model_hash,
+        "episodes": episodes,
+        "splits": sorted(splits),
+        "conditions": cond_params,
+        "controllers": sorted(controllers),
+        "manifest_hashes": manifest_hashes,
+        "robot_kinematics": kinematics,
+        "safety_config": safety_config,
+    }
+    canonical_json = json.dumps(canonical_repr, sort_keys=True, separators=(",", ":"))
+    config_hash = compute_sha256(canonical_json)
+
+    return {
+        "fingerprint_version": "2.0",
+        "config_hash": config_hash,
+        "git_commit": git_commit,
+        "git_dirty": git_dirty,
+        "timestamp_utc": datetime.now(timezone.utc).isoformat(),
+        "model_path": str(model_path) if model_path else None,
+        "model_sha256": model_hash,
+        "episodes_per_condition": episodes,
+        "splits": sorted(splits),
+        "conditions": cond_params,
+        "controllers": sorted(controllers),
+        "unique_layout_seeds": unique_seeds_by_split,
+        "manifest_hashes": manifest_hashes,
+        "robot_kinematics": kinematics,
+        "safety_config": safety_config,
+        "dependency_versions": dependencies,
+    }
 
 
 def main() -> None:
@@ -96,34 +209,31 @@ def main() -> None:
         pd.DataFrame(manifest_rows).to_csv(out / f"manifest_{split}.csv", index=False)
         print(f"[{split}] Saved manifest with {len(scns)} scenarios ({len(unique_seeds)} unique layout seeds).")
 
-    # Record experiment configuration fingerprint
-    fingerprint = {
-        "timestamp_utc": datetime.now(timezone.utc).isoformat(),
-        "episodes_per_condition": a.episodes,
-        "splits": a.splits,
-        "conditions": a.conditions,
-        "controllers": [c[0] for c in controllers],
-        "unique_layout_seeds": unique_seeds_by_split,
-        "test_seeds_config": {"start": C.TEST_SEEDS[0], "end": C.TEST_SEEDS[-1], "count": len(C.TEST_SEEDS)},
-        "heldout_seeds_config": {"start": C.HELDOUT_SEEDS[0], "end": C.HELDOUT_SEEDS[-1], "count": len(C.HELDOUT_SEEDS)},
-        "robot_kinematics": {
-            "robot_radius": C.ROBOT_RADIUS,
-            "v_max": C.V_MAX,
-            "w_max": C.W_MAX,
-            "a_v_max": C.A_V_MAX,
-            "a_w_max": C.A_W_MAX,
-            "reaction_time_s": 0.15,
-            "max_recovery_attempts": 4,
-            "min_sensor_coverage": 0.50,
-        },
-        "model_path": str(a.model),
-    }
-    (out / "experiment_fingerprint.json").write_text(json.dumps(fingerprint, indent=2))
-    print(f"Saved experiment configuration fingerprint: {out / 'experiment_fingerprint.json'}")
+    # Build experiment configuration fingerprint
+    current_fingerprint = build_experiment_fingerprint(
+        a.model, a.episodes, a.splits, a.conditions, [c[0] for c in controllers], scenarios_by_split
+    )
 
     existing_df = None
     if a.merge_existing and (out / "compare_episodes.csv").exists():
-        existing_df = pd.read_csv(out / "compare_episodes.csv")
+        fp_path = out / "experiment_fingerprint.json"
+        if fp_path.exists():
+            try:
+                saved_fp = json.loads(fp_path.read_text(encoding="utf-8"))
+                if saved_fp.get("config_hash") == current_fingerprint["config_hash"]:
+                    print(f"[FINGERPRINT MATCH] Cryptographic configuration hash {current_fingerprint['config_hash'][:12]} matches existing experiment.")
+                    existing_df = pd.read_csv(out / "compare_episodes.csv")
+                else:
+                    diffs = []
+                    for k in ("model_sha256", "conditions", "manifest_hashes", "controllers", "safety_config", "robot_kinematics"):
+                        if saved_fp.get(k) != current_fingerprint.get(k):
+                            diffs.append(k)
+                    diff_msg = ", ".join(diffs) if diffs else "config_hash mismatch"
+                    print(f"[FINGERPRINT MISMATCH] Configuration has changed since previous run ({diff_msg}). Discarding cached runs to enforce scientific reproducibility.", flush=True)
+            except Exception as e:
+                print(f"[FINGERPRINT WARNING] Could not validate fingerprint ({e}). Discarding cached runs.", flush=True)
+        else:
+            print("[FINGERPRINT NOTICE] No previous fingerprint found. Discarding unverified cached runs.", flush=True)
 
     frames = []
     for split in a.splits:
@@ -152,6 +262,10 @@ def main() -> None:
     ep = pd.concat(frames, ignore_index=True)
     ep.to_csv(out / "compare_episodes.csv", index=False)
     print(f"Saved: {out / 'compare_episodes.csv'} ({len(ep)} total episodes)")
+
+    # Save finalized experiment configuration fingerprint
+    (out / "experiment_fingerprint.json").write_text(json.dumps(current_fingerprint, indent=2), encoding="utf-8")
+    print(f"Saved experiment configuration fingerprint: {out / 'experiment_fingerprint.json'} (config_hash: {current_fingerprint['config_hash'][:12]})")
 
     rows = []
     for (split, cond, name), g in ep.groupby(["split", "condition", "controller"], sort=False):
@@ -204,6 +318,11 @@ def main() -> None:
                 })
 
     paired_df = pd.DataFrame(paired_rows)
+    if not paired_df.empty:
+        p_exact = paired_df["mcnemar_p_exact"].to_numpy()
+        p_holm, reject_holm = holm_bonferroni_correction(p_exact, alpha=0.05)
+        paired_df["mcnemar_p_holm"] = p_holm
+        paired_df["significant_holm_fwer"] = reject_holm
     paired_df.to_csv(out / "paired_statistical_tests.csv", index=False)
     print(f"Saved: {out / 'paired_statistical_tests.csv'}")
 

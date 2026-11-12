@@ -91,18 +91,14 @@ class Logger(Node):
         if self.gt is None:
             return
         try:
-            # Query TF synchronized to ground truth message timestamp when available
-            if self.gt_stamp is not None:
-                t = self.buf.lookup_transform(
-                    "map", "base_link", self.gt_stamp, timeout=rclpy.duration.Duration(seconds=0.05)
-                ).transform
-            else:
-                t = self.buf.lookup_transform("map", "base_link", rclpy.time.Time()).transform
+            # Strictly query TF synchronized to ground truth message timestamp
+            stamp = self.gt_stamp if self.gt_stamp is not None else rclpy.time.Time()
+            t = self.buf.lookup_transform(
+                "map", "base_link", stamp, timeout=rclpy.duration.Duration(seconds=0.05)
+            ).transform
         except TransformException:
-            try:
-                t = self.buf.lookup_transform("map", "base_link", rclpy.time.Time()).transform
-            except TransformException:
-                return
+            # Drop sample if synchronized transform is unavailable to prevent pairing poses from different times
+            return
 
         slam = np.array([t.translation.x, t.translation.y, yaw_from_quat(t.rotation)])
         if self.T is None:

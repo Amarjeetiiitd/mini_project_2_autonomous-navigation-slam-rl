@@ -18,9 +18,12 @@ _NBRS = [(-1, 0, 1.0), (1, 0, 1.0), (0, -1, 1.0), (0, 1, 1.0),
 
 def make_clearance_penalty(blocked: np.ndarray, res: float = C.GRID_RES,
                            margin: float = 0.25, max_penalty: float = 0.35) -> np.ndarray:
-    """Compute normalized clearance penalty: acts as a gentle Voronoi medial-axis tie-breaker.
-    Guides Dijkstra along the center line of doorways and narrow corridors without distorting
-    global Euclidean path length or inducing non-optimal room detours."""
+    """Compute clearance penalty using Euclidean Distance Transform (EDT).
+
+    Acts as a medial-axis-inspired clearance-aware tie-breaker that guides Dijkstra
+    along corridor and doorway midlines without distorting Euclidean path length metrics
+    or inducing non-optimal room detours.
+    """
     dist = ndimage.distance_transform_edt(~blocked) * res
     penalty = np.where((dist < margin) & ~blocked, ((margin - dist) / margin) ** 2 * max_penalty, 0.0)
     return penalty

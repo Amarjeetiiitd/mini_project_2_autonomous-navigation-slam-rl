@@ -220,3 +220,106 @@ def test_t15_recovery_attempts_finite_termination():
     assert diag["intervention"] == "safe_stop"
     assert diag["recovery_failed"] is True
 
+
+# T16: Complete scan failure modes (all-NaN and all-posinf)
+def test_t16_all_nan_and_all_posinf_scans(filter):
+    from rl_training.obs import resample_scan
+    n = 360
+    inc = 2 * math.pi / n
+
+    # Case A: All NaN readings
+    nan_ranges = np.full(n, np.nan)
+    sect_nan, mask_nan = resample_scan(nan_ranges, -math.pi, inc, return_mask=True)
+    assert not mask_nan.any()
+    assert np.isnan(sect_nan).all()
+    v_safe, w_safe, diag = filter.filter_command(0.20, 0.0, sect_nan, valid_mask=mask_nan)
+    assert v_safe == 0.0 and w_safe == 0.0
+    assert diag["intervention"] == "sensor_loss_stop"
+    assert diag["sensor_loss"] is True
+
+    # Case B: All positive infinity readings (clean open free space)
+    inf_ranges = np.full(n, np.inf)
+    sect_inf, mask_inf = resample_scan(inf_ranges, -math.pi, inc, return_mask=True)
+    assert mask_inf.all()
+    assert np.all(sect_inf == C.RANGE_MAX)
+    v_safe, w_safe, diag = filter.filter_command(0.20, 0.0, sect_inf, valid_mask=mask_inf)
+    assert v_safe == pytest.approx(0.20)
+    assert diag["intervention"] == "none"
+
+
+# T17: Partial dropout and complete forward sector loss
+def test_t17_partial_dropout_and_forward_sector_loss(filter):
+    from rl_training.obs import resample_scan
+    n = 360
+    inc = 2 * math.pi / n
+
+    # Case A: Forward 120-degree sector dropout (beams 120..240 are NaN, rear is clear)
+    fwd_loss_ranges = np.full(n, 2.5)
+    fwd_loss_ranges[120:240] = np.nan
+    sect, mask = resample_scan(fwd_loss_ranges, -math.pi, inc, return_mask=True)
+    # Forward sectors 8..16 should be invalid
+    assert not mask[10:15].any()
+    # Driving forward blindly must be stopped
+    v_safe, w_safe, diag = filter.filter_command(0.20, 0.0, sect, valid_mask=mask)
+    assert v_safe == 0.0
+    assert diag["intervention"] == "forward_sensor_loss_stop"
+    assert diag["sensor_loss"] is True
+
+    # Case B: Random partial dropout with surviving valid beams
+    rng = np.random.default_rng(42)
+    random_ranges = np.full(n, 2.0)
+    random_ranges[rng.random(n) < 0.60] = np.nan  # 60% beam dropout
+    sect_rand, mask_rand = resample_scan(random_ranges, -math.pi, inc, return_mask=True)
+    # At least some sectors survive, empty sectors are marked False
+    assert mask_rand.any()
+    # Mask correctly reflects non-finite values in resampled ranges
+    assert np.array_equal(mask_rand, np.isfinite(sect_rand))
+
+
+# T18: Recovery latched safe stop and external reset
+def test_t18_recovery_latched_safe_stop_and_reset():
+    cfg = SafetyConfig(max_recovery_attempts=1, recovery_duration=2)
+    f = NavigationSafetyFilter(cfg)
+    sectors = make_clean_sectors(3.0)
+    sectors[12] = 0.23  # Imminent front collision
+    sectors[[22, 23, 0, 1, 2]] = 0.20  # Rear obstructed
+
+    # Execute recovery cycle to exhaust attempt budget
+    for _ in range(2):
+        f.filter_command(0.15, 0.0, sectors, estimated_pose=(1.0, 1.0))
+
+    # Next call exhausts attempts and latches safe_stop
+    v, w, diag = f.filter_command(0.15, 0.0, sectors, estimated_pose=(1.0, 1.0))
+    assert v == 0.0 and w == 0.0
+    assert diag["intervention"] == "safe_stop"
+    assert diag["recovery_failed"] is True
+    assert f.recovery_failed_latched is True
+
+    # Subsequent call with completely clear obstacle field must REMAIN in latched safe stop
+    clean = make_clean_sectors(3.0)
+    v2, w2, diag2 = f.filter_command(0.20, 0.0, clean, estimated_pose=(1.0, 1.0))
+    assert v2 == 0.0 and w2 == 0.0
+    assert diag2["intervention"] == "safe_stop"
+    assert diag2["recovery_failed"] is True
+
+    # Calling reset() must unlatch safe stop and restore nominal control
+    f.reset()
+    assert f.recovery_failed_latched is False
+    v3, w3, diag3 = f.filter_command(0.20, 0.0, clean, estimated_pose=(1.0, 1.0))
+    assert v3 == pytest.approx(0.20)
+    assert diag3["intervention"] == "none"
+
+
+# T19: Omnidirectional conservative imminent collision behavior
+def test_t19_omnidirectional_conservative_imminent_collision(filter):
+    # Documented behavior: When an obstacle violates the physical clearance boundary (< robot_radius + 0.015 m)
+    # in any direction (including behind at 0.23 m), the filter conservatively initiates recovery.
+    sectors = make_clean_sectors(3.0)
+    sectors[0] = 0.23  # within 0.01 m of chassis (< 0.235 m)
+
+    # When rear is blocked, robot must NOT reverse into the obstacle; it commands an in-place pivot
+    v_safe, w_safe, diag = filter.filter_command(0.20, 0.0, sectors)
+    assert v_safe >= 0.0
+    assert diag["intervention"] == "recovery_pivot"
+    assert abs(w_safe) > 0.0
+

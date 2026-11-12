@@ -181,14 +181,6 @@ Held-Out & MAS-RL & 197.4 & 0.5 & 5.0 & 7.2 & 41.0 & 251.0 (64.3\%) \\
 \bottomrule
 \end{tabular}
 \end{table}
-Test & PPO Governor & 99.9 & 0.0 & 0.0 & 0.0 & 0.0 & 100.1 (35.6\%) \\
-Test & MAS-RL & 85.7 & 6.2 & 7.7 & 3.3 & 0.6 & 103.6 (37.0\%) \\
-\midrule
-Held-Out & PPO Governor & 259.9 & 0.0 & 0.0 & 0.0 & 0.0 & 259.9 (65.3\%) \\
-Held-Out & MAS-RL & 203.8 & 0.5 & 6.9 & 7.8 & 9.1 & 228.2 (60.6\%) \\
-\bottomrule
-\end{tabular}
-\end{table}
 
 \subsection{ROS 2 Embodied Pipeline \& Latency Benchmark}
 The frozen policy is deployed in ROS 2 Jazzy and Gazebo Harmonic on a TurtleBot3 Waffle. TF2 asynchronously resolves \texttt{map -> base\_link} using SLAM Toolbox graph updates. On a standard multi-core CPU, the forward inference pass takes \textbf{$1.2\,\text{ms}$}, consuming $< 2\%$ of the $100\,\text{ms}$ (10 Hz) control budget and confirming suitability for real-time edge microcontrollers.

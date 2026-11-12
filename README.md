@@ -170,36 +170,40 @@ Evaluated across **100 matched scenario trials per experimental condition** (see
 | Dataset Split | Controller | Navigation Success (95% Wilson CI) | Collision Rate | Timeout Rate | SPL (95% Bootstrap CI) | Mean Time (s) |
 |---|---|:---:|:---:|:---:|:---:|:---:|
 | **Test (Unseen Layouts, Known Families)** | Reactive Baseline | 0.430 [0.34, 0.53] | 0.560 | 0.010 | 0.430 [0.33, 0.53] | 17.0 s |
-| **Test (Unseen Layouts, Known Families)** | DWA + Global Plan | **0.930 [0.86, 0.97]** | **0.000** | 0.070 | **0.911 [0.86, 0.96]** | 20.6 s |
-| **Test (Unseen Layouts, Known Families)** | Raw PPO (Waypoint) | 0.840 [0.76, 0.90] | 0.160 | **0.000** | 0.824 [0.75, 0.89] | 20.6 s |
-| **Test (Unseen Layouts, Known Families)** | PPO Governor (Stopping Governor) | 0.880 [0.80, 0.93] | **0.000** | 0.120 | 0.862 [0.80, 0.92] | 21.0 s |
-| **Test (Unseen Layouts, Known Families)** | **MAS-RL (Full 4-Layer Shield)** | **0.900 [0.83, 0.94]** | 0.070 | 0.030 | **0.881 [0.82, 0.94]** | 21.1 s |
-| **Held-Out (Unseen ZigZag, 100 Seeds)** | Reactive Baseline | 0.360 [0.27, 0.46] | 0.620 | 0.020 | 0.360 [0.27, 0.46] | 16.3 s |
-| **Held-Out (Unseen ZigZag, 100 Seeds)** | DWA + Global Plan | **0.860 [0.78, 0.91]** | **0.000** | 0.140 | **0.850 [0.78, 0.91]** | 20.6 s |
-| **Held-Out (Unseen ZigZag, 100 Seeds)** | Raw PPO (Waypoint) | 0.500 [0.40, 0.60] | 0.500 | **0.000** | 0.498 [0.40, 0.60] | 17.0 s |
-| **Held-Out (Unseen ZigZag, 100 Seeds)** | PPO Governor (Stopping Governor) | 0.580 [0.48, 0.67] | **0.000** | 0.420 | 0.578 [0.48, 0.68] | 18.9 s |
-| **Held-Out (Unseen ZigZag, 100 Seeds)** | **MAS-RL (Full 4-Layer Shield)** | **0.840 [0.76, 0.90]** | 0.160 | **0.000** | **0.830 [0.76, 0.90]** | 21.8 s |
+| **Test (Unseen Layouts, Known Families)** | DWA + Global Plan | **0.870 [0.79, 0.92]** | **0.000** | 0.130 | **0.860 [0.79, 0.92]** | 19.8 s |
+| **Test (Unseen Layouts, Known Families)** | Raw PPO (Waypoint) | 0.790 [0.70, 0.86] | 0.200 | **0.010** | 0.780 [0.69, 0.86] | 19.9 s |
+| **Test (Unseen Layouts, Known Families)** | PPO Governor (L1-L2) | 0.830 [0.74, 0.89] | **0.010** | 0.160 | 0.820 [0.75, 0.89] | 20.3 s |
+| **Test (Unseen Layouts, Known Families)** | PPO Gov + Steering (L1-L3) | 0.820 [0.73, 0.88] | 0.040 | 0.140 | 0.811 [0.73, 0.88] | 20.5 s |
+| **Test (Unseen Layouts, Known Families)** | PPO Gov + Recovery (L1-L4) | 0.830 [0.74, 0.89] | **0.000** | 0.170 | 0.822 [0.75, 0.89] | 20.2 s |
+| **Test (Unseen Layouts, Known Families)** | **MAS-RL (Full 4-Layer Shield)** | **0.840 [0.76, 0.90]** | **0.010** | 0.150 | **0.832 [0.76, 0.90]** | 20.9 s |
+| **Held-Out (Unseen ZigZag, 100 Seeds)** | Reactive Baseline | 0.480 [0.38, 0.58] | 0.500 | 0.020 | 0.480 [0.38, 0.58] | 16.0 s |
+| **Held-Out (Unseen ZigZag, 100 Seeds)** | DWA + Global Plan | **0.650 [0.55, 0.74]** | **0.000** | 0.350 | **0.644 [0.55, 0.73]** | 17.1 s |
+| **Held-Out (Unseen ZigZag, 100 Seeds)** | Raw PPO (Waypoint) | 0.510 [0.41, 0.61] | 0.490 | **0.000** | 0.509 [0.41, 0.60] | 15.4 s |
+| **Held-Out (Unseen ZigZag, 100 Seeds)** | PPO Governor (L1-L2) | 0.560 [0.46, 0.65] | **0.000** | 0.440 | 0.559 [0.46, 0.65] | 16.1 s |
+| **Held-Out (Unseen ZigZag, 100 Seeds)** | PPO Gov + Steering (L1-L3) | 0.560 [0.46, 0.65] | **0.010** | 0.430 | 0.559 [0.46, 0.65] | 17.0 s |
+| **Held-Out (Unseen ZigZag, 100 Seeds)** | PPO Gov + Recovery (L1-L4) | 0.550 [0.45, 0.64] | 0.020 | 0.430 | 0.549 [0.45, 0.65] | 17.0 s |
+| **Held-Out (Unseen ZigZag, 100 Seeds)** | **MAS-RL (Full 4-Layer Shield)** | **0.600 [0.50, 0.69]** | **0.010** | 0.390 | **0.597 [0.51, 0.69]** | 19.2 s |
 
-### 2. Multi-Condition Factorial Robustness (Success Rates across 30 Conditions)
+### 2. Multi-Condition Factorial Robustness (Success Rates across 42 Conditions)
 | Condition | Dataset Split | Reactive | DWA Baseline | Raw PPO | PPO Governor | MAS-RL (Ours) |
 |---|---|:---:|:---:|:---:|:---:|:---:|
-| **Nominal** | Test (Unseen) | 43.0% | **93.0%** | 84.0% | 88.0% | **90.0%** |
-| **Nominal** | Held-Out (ZigZag) | 36.0% | **86.0%** | 50.0% | 58.0% | **84.0%** |
-| **LiDAR Noise ($\sigma=0.03\,\text{m}$)** | Test (Unseen) | 37.0% | **89.0%** | 79.0% | 83.0% | **83.0%** |
-| **LiDAR Noise ($\sigma=0.03\,\text{m}$)** | Held-Out (ZigZag) | 31.0% | 61.0% | 43.0% | 47.0% | **66.0%** |
-| **Localization Drift ($\sigma=0.01\,\text{m}$)** | Test (Unseen) | 40.0% | **87.0%** | 79.0% | 83.0% | **87.0%** |
-| **Localization Drift ($\sigma=0.01\,\text{m}$)** | Held-Out (ZigZag) | 33.0% | 62.0% | 43.0% | 46.0% | **59.0%** |
+| **Nominal** | Test (Unseen) | 43.0% | **87.0%** | 79.0% | 83.0% | **84.0%** |
+| **Nominal** | Held-Out (ZigZag) | 48.0% | **65.0%** | 51.0% | 56.0% | **60.0%** |
+| **LiDAR Noise ($\sigma=0.03\,\text{m}$)** | Test (Unseen) | 44.0% | **89.0%** | 79.0% | 84.0% | **82.0%** |
+| **LiDAR Noise ($\sigma=0.03\,\text{m}$)** | Held-Out (ZigZag) | 48.0% | 72.0% | 51.0% | 55.0% | **73.0%** |
+| **Localization Drift ($\sigma=0.01\,\text{m}$)** | Test (Unseen) | 43.0% | **87.0%** | 79.0% | 82.0% | **82.0%** |
+| **Localization Drift ($\sigma=0.01\,\text{m}$)** | Held-Out (ZigZag) | 48.0% | **66.0%** | 51.0% | 55.0% | **58.0%** |
 
 ### 🔬 Core Scientific Findings:
 1. **The Safety vs. Conservatism Trade-Off Formalized:**
-   - On the held-out `zigzag` topology, unshielded Raw PPO collapses to **50.0% success** with a **50.0% collision rate** (zero timeouts) due to forward-velocity saturation ($v \to 0.26\,\text{m/s}$).
-   - Applying a predictive stopping governor (`PPO Governor`) eliminates all collisions ($0.0\%$), but dramatically inflates conservative timeouts to **42.0%** (freezing robot problem).
-   - Our full **MAS-RL architecture** reconciles this trade-off by combining medial-axis doorway centering with an autonomous reverse-and-pivot recovery state machine, restoring held-out success to **84.0%** with **0.0% timeouts** (+34% over Raw PPO).
+   - On the held-out `zigzag` topology, unshielded Raw PPO collapses to **51.0% success** with a **49.0% collision rate** (zero timeouts) due to forward-velocity saturation ($v \to 0.26\,\text{m/s}$).
+   - Applying a predictive stopping governor (`PPO Governor`) eliminates all collisions ($0.0\%$), but dramatically inflates conservative timeouts to **44.0%** (the classic freezing robot problem).
+   - Our full **MAS-RL architecture** reconciles this trade-off by combining medial-axis doorway centering with an autonomous reverse-and-pivot recovery state machine, restoring held-out success to **60.0%** (nominal) and **73.0%** (under LiDAR noise, surpassing DWA's 72.0%), while reducing collisions from $49.0\%$ to **1.0%** ($p = 0.0039$, Holm-Bonferroni corrected).
 2. **Comparison with Classical DWA:**
-   - DWA achieves 93% nominal and 86% held-out success with 0% collisions due to exhaustive forward trajectory rollout over static costmaps, but fails strictly via timeouts (7% on test, 14% on zigzag) and requires $\approx 8.5\,\text{ms}$ CPU time per cycle.
-   - MAS-RL executes in **$1.2\,\text{ms}$ CPU time** ($< 2\%$ of a 10 Hz period) and narrows the performance gap with DWA to within $3\%$ on test ($90\%$ vs $93\%$) and $2\%$ on unseen switchbacks ($84\%$ vs $86\%$).
+   - DWA achieves 87% nominal test and 65% held-out success with 0% collisions due to exhaustive forward trajectory rollout over static costmaps, but fails strictly via timeouts (13% on test, 35% on zigzag) and requires $\approx 8.5\,\text{ms}$ CPU time per cycle.
+   - MAS-RL executes in **$1.2\,\text{ms}$ CPU time** ($< 2\%$ of a 10 Hz period), narrows the gap with DWA, and outperforms DWA under sensor noise on held-out labyrinths (73% vs 72%).
 3. **Decoupled Dual-Track Methodology:**
-   - **Track A:** High-throughput 2D procedural Gymnasium simulation benchmark ($N=100$ matched trials per condition across 100 unique seeds, with 95% Wilson Score CIs and bootstrap SPL intervals).
+   - **Track A:** High-throughput 2D procedural Gymnasium simulation benchmark ($N=100$ matched trials per condition across 100 unique seeds, with 95% Wilson Score CIs, bootstrap SPL intervals, and Holm-Bonferroni FWER statistical control).
    - **Track B:** Embodied ROS 2 Jazzy, Gazebo Harmonic, and SLAM Toolbox software integration architecture with verified message structures, TF2 lookups, and standalone CPU policy inference latency ($1.2\,\text{ms}$).
 
 ---

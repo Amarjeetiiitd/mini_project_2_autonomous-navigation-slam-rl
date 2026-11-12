@@ -131,3 +131,35 @@ def clustered_bootstrap_ci(
         boot_means[b] = np.mean(sampled_vals)
 
     return float(np.quantile(boot_means, alpha / 2)), float(np.quantile(boot_means, 1.0 - alpha / 2))
+
+
+def holm_bonferroni_correction(p_values: list[float] | np.ndarray, alpha: float = 0.05) -> tuple[np.ndarray, np.ndarray]:
+    """Apply Holm-Bonferroni step-down procedure to control Family-Wise Error Rate (FWER).
+
+    Args:
+        p_values: Sequence of unadjusted p-values from multiple hypothesis tests.
+        alpha: Nominal family-wise significance level (default 0.05).
+
+    Returns:
+        p_adjusted: Array of Holm-adjusted p-values (capped at 1.0).
+        reject: Boolean array where True indicates rejection of the null hypothesis at level alpha.
+    """
+    p = np.asarray(p_values, dtype=float)
+    m = len(p)
+    if m == 0:
+        return np.array([]), np.array([], dtype=bool)
+
+    order = np.argsort(p)
+    sorted_p = p[order]
+
+    adjusted = np.empty(m, dtype=float)
+    cur_max = 0.0
+    for i, p_val in enumerate(sorted_p):
+        step_val = float(m - i) * p_val
+        cur_max = max(cur_max, step_val)
+        adjusted[i] = min(1.0, cur_max)
+
+    p_adj = np.empty(m, dtype=float)
+    p_adj[order] = adjusted
+    reject = p_adj < alpha
+    return p_adj, reject

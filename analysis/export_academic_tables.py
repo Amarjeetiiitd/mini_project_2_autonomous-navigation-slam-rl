@@ -31,6 +31,8 @@ def export_latex_main_table(df: pd.DataFrame, out_path: Path):
         "dwa_global": "DWA + Global Plan",
         "ppo_waypoint": "Unshielded PPO",
         "ppo_governor": "PPO + Safety Governor (L1)",
+        "ppo_gov_steering": "PPO + Gov + Steering (L1-L2)",
+        "ppo_gov_recovery": "PPO + Gov + Recovery (L1-L3)",
         "mas_rl": r"\textbf{MAS-RL (Full 4-Layer)}"
     }
     
@@ -73,12 +75,14 @@ def export_latex_family_table(df_fam: pd.DataFrame, out_path: Path):
         r"\hline"
     ]
     
-    ctrls = ["reactive", "dwa_global", "ppo_waypoint", "ppo_governor", "mas_rl"]
+    ctrls = ["reactive", "dwa_global", "ppo_waypoint", "ppo_governor", "ppo_gov_steering", "ppo_gov_recovery", "mas_rl"]
     ctrl_map = {
         "reactive": "Reactive Baseline",
         "dwa_global": "DWA + Global Plan",
         "ppo_waypoint": "Unshielded PPO",
         "ppo_governor": "PPO + Safety Governor (L1)",
+        "ppo_gov_steering": "PPO + Gov + Steering (L1-L2)",
+        "ppo_gov_recovery": "PPO + Gov + Recovery (L1-L3)",
         "mas_rl": r"\textbf{MAS-RL (Full 4-Layer)}"
     }
     

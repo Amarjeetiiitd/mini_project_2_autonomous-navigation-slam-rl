@@ -120,9 +120,11 @@ class PolicyNode(Node):
         return self.get_clock().now().nanoseconds * 1e-9
 
     def on_scan(self, msg: LaserScan) -> None:
-        self.scan_sectors = resample_scan(msg.ranges, msg.angle_min, msg.angle_increment,
-                                          max(msg.range_min, C.RANGE_MIN), min(msg.range_max, C.RANGE_MAX),
-                                          self.scan_yaw_offset)
+        self.scan_sectors, self.scan_mask = resample_scan(
+            msg.ranges, msg.angle_min, msg.angle_increment,
+            max(msg.range_min, C.RANGE_MIN), min(msg.range_max, C.RANGE_MAX),
+            self.scan_yaw_offset, return_mask=True
+        )
         self.scan_stamp = self.now_s()
 
     def on_odom(self, msg: Odometry) -> None:
@@ -244,7 +246,8 @@ class PolicyNode(Node):
         # ---- safety: unified predictive stopping-distance governor, repulsive deflection & recovery
         if self.enable_safety_shield:
             v, w, diag = self.safety_filter.filter_command(
-                v, w, self.scan_sectors, estimated_pose=pose[:2], dt=1.0 / self.rate_hz
+                v, w, self.scan_sectors, estimated_pose=pose[:2], dt=1.0 / self.rate_hz,
+                valid_mask=getattr(self, "scan_mask", None)
             )
             if diag["intervention"] != "none":
                 self.get_logger().info(

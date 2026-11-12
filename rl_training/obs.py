@@ -37,39 +37,67 @@ def ray_angles() -> np.ndarray:
 
 def resample_scan(ranges, angle_min: float, angle_increment: float,
                   range_min: float = C.RANGE_MIN, range_max: float = C.RANGE_MAX,
-                  yaw_offset: float = 0.0) -> np.ndarray:
+                  yaw_offset: float = 0.0,
+                  return_mask: bool = False) -> np.ndarray | tuple[np.ndarray, np.ndarray]:
     """Reduce a sensor_msgs/LaserScan-style array to N_SECTORS minimum ranges (m).
 
-    Valid readings within [range_min, range_max] are mapped to angular sectors.
-    If the scan has no valid readings at all (sensor dropout/failure), returns an array
-    of NaNs so downstream safety filters trigger fail-safe stopping.
-    When valid readings exist, sectors without obstacle returns default to RANGE_MAX (free space).
-    `yaw_offset` rotates scan angles into the base_link frame.
+    Valid readings within [range_min, range_max] or genuine free space (+inf)
+    are mapped to angular sectors.
+    Sectors with NO valid raw readings (complete dropout / blind spots) are marked as
+    invalid (NaN in ranges, False in mask) rather than being falsely imputed as free space.
+
+    Args:
+        ranges: Sequence of raw distance returns.
+        angle_min: Angle of first beam (rad).
+        angle_increment: Angular distance between beams (rad).
+        range_min: Minimum reliable sensor range (m).
+        range_max: Maximum sensor range (m).
+        yaw_offset: Offset in radians rotating scan into base_link frame.
+        return_mask: If True, returns (sector_ranges, sector_valid_mask).
+
+    Returns:
+        np.ndarray of shape (N_SECTORS,), or tuple (sector_ranges, sector_valid_mask).
     """
     r = np.asarray(ranges, dtype=np.float64)
-    if r.size == 0 or not np.isfinite(r).any():
-        return np.full(C.N_SECTORS, np.nan)
+    out = np.full(C.N_SECTORS, np.nan, dtype=np.float64)
+    valid_mask = np.zeros(C.N_SECTORS, dtype=bool)
+
+    if r.size == 0:
+        return (out, valid_mask) if return_mask else out
 
     angles = angle_min + np.arange(r.size) * angle_increment + yaw_offset
-    valid = np.isfinite(r) & (r >= range_min) & (r <= range_max)
-    if not valid.any():
-        # Distinguish genuine free space (+inf returns) from sensor error
-        inf_returns = np.isposinf(r)
-        if inf_returns.any():
-            return np.full(C.N_SECTORS, C.RANGE_MAX)
-        return np.full(C.N_SECTORS, np.nan)
+    beam_sectors = sector_index(angles)
 
-    out = np.full(C.N_SECTORS, C.RANGE_MAX)
-    idx = sector_index(angles[valid])
-    np.minimum.at(out, idx, np.minimum(r[valid], C.RANGE_MAX))
-    return out
+    finite_hits = np.isfinite(r) & (r >= range_min) & (r <= range_max)
+    inf_returns = np.isposinf(r)
+    valid_beams = finite_hits | inf_returns
+
+    if not valid_beams.any():
+        return (out, valid_mask) if return_mask else out
+
+    # Mark sectors containing at least one valid beam (hit or free-space inf)
+    valid_sectors = np.unique(beam_sectors[valid_beams])
+    valid_mask[valid_sectors] = True
+    out[valid_sectors] = range_max
+
+    # For valid finite obstacle hits, aggregate minimum distance per sector
+    if finite_hits.any():
+        hit_sectors = beam_sectors[finite_hits]
+        hit_ranges = np.minimum(r[finite_hits], range_max)
+        np.minimum.at(out, hit_sectors, hit_ranges)
+
+    return (out, valid_mask) if return_mask else out
 
 
 def build_observation(sector_ranges, goal_dist: float, goal_angle: float,
                       v: float, w: float) -> np.ndarray:
     """Assemble the 29-D observation. v, w are the robot's current velocities."""
     obs = np.empty(C.OBS_DIM, dtype=np.float32)
-    obs[:C.N_SECTORS] = np.clip(np.asarray(sector_ranges) / C.RANGE_MAX, 0.0, 1.0)
+    sr = np.asarray(sector_ranges, dtype=np.float32)
+    if not np.isfinite(sr).all():
+        # Sanitize missing/NaN sectors conservatively to 0.0 (obstacle immediately adjacent)
+        sr = np.where(np.isfinite(sr), sr, 0.0)
+    obs[:C.N_SECTORS] = np.clip(sr / C.RANGE_MAX, 0.0, 1.0)
     obs[C.N_SECTORS] = min(goal_dist / C.GOAL_DIST_NORM, 1.0)
     obs[C.N_SECTORS + 1] = math.sin(goal_angle)
     obs[C.N_SECTORS + 2] = math.cos(goal_angle)

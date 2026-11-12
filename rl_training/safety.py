@@ -36,6 +36,7 @@ class SafetyConfig:
     recovery_duration: int = 8                    # control steps (~0.8 s)
     max_recovery_attempts: int = 4                # maximum repeated recovery cycles before timeout
     min_sensor_coverage: float = 0.50             # fraction of finite sectors required to avoid sensor loss stop
+    forward_coverage_min: float = 0.50            # fraction of forward sectors (8..16) required for forward drive
     enable_governor: bool = True                  # Layer 2: Stopping-distance braking ceiling
     enable_centering: bool = True                 # Layer 3: Lateral repulsion & doorway centering
     enable_recovery: bool = True                  # Layer 4: Stagnation watchdog & reverse recovery
@@ -52,6 +53,7 @@ class NavigationSafetyFilter:
         self.last_recovery_pos: tuple[float, float] | None = None
         self.history: list[tuple[float, float]] = []
         self.last_intervention = "none"
+        self.recovery_failed_latched = False
         self.stats = {
             "governor_brakes": 0,
             "centering_interventions": 0,
@@ -72,6 +74,7 @@ class NavigationSafetyFilter:
         self.last_recovery_pos = None
         self.history.clear()
         self.last_intervention = "none"
+        self.recovery_failed_latched = False
         self.reset_stats()
 
     def reset_stats(self) -> None:
@@ -86,6 +89,7 @@ class NavigationSafetyFilter:
         sector_ranges: np.ndarray,
         estimated_pose: tuple[float, float] | np.ndarray | None = None,
         dt: float = C.DT,
+        valid_mask: np.ndarray | None = None,
     ) -> tuple[float, float, dict]:
         """Apply cascading safety layers to nominal velocity commands (v, w).
 
@@ -96,6 +100,8 @@ class NavigationSafetyFilter:
             estimated_pose: (x, y) believed robot coordinate from odometry or SLAM TF2.
                             MUST NOT be simulator ground truth!
             dt: Control cycle interval (s).
+            valid_mask: Optional boolean array (shape 24) indicating which sectors contain valid readings.
+                        If omitted, inferred from np.isfinite(sector_ranges).
 
         Returns:
             (safe_v, safe_w, diagnostics_dict)
@@ -104,15 +110,23 @@ class NavigationSafetyFilter:
         if ranges.shape[0] != C.N_SECTORS:
             raise ValueError(f"Expected {C.N_SECTORS} LiDAR sectors, got {ranges.shape[0]}")
 
-        # Check valid sensor coverage
-        finite_mask = np.isfinite(ranges)
+        # Check explicit or inferred sector validity mask
+        if valid_mask is None:
+            finite_mask = np.isfinite(ranges)
+        else:
+            finite_mask = np.asarray(valid_mask, dtype=bool) & np.isfinite(ranges)
+
         coverage = float(np.mean(finite_mask))
+        forward_mask = finite_mask[8:17]  # sectors 8..16 (+/- 60 deg)
+        forward_coverage = float(np.mean(forward_mask))
+
+        # Check sensor coverage fail-safes
         if coverage < self.cfg.min_sensor_coverage:
-            # Sensor loss fail-safe: halt all motion immediately
             diag = {
                 "intervention": "sensor_loss_stop",
                 "sensor_loss": True,
                 "coverage": coverage,
+                "forward_coverage": forward_coverage,
                 "v_raw": float(raw_v),
                 "w_raw": float(raw_w),
                 "v_safe": 0.0,
@@ -124,9 +138,59 @@ class NavigationSafetyFilter:
                 "is_stagnated": False,
                 "recovery_active": False,
                 "recovery_attempts": self.recovery_attempts,
+                "recovery_failed": False,
             }
             self.last_intervention = "sensor_loss_stop"
             self.stats["sensor_loss_stops"] += 1
+            self.stats["total_steps"] += 1
+            return 0.0, 0.0, diag
+        elif raw_v > 0 and forward_coverage < self.cfg.forward_coverage_min:
+            diag = {
+                "intervention": "forward_sensor_loss_stop",
+                "sensor_loss": True,
+                "coverage": coverage,
+                "forward_coverage": forward_coverage,
+                "v_raw": float(raw_v),
+                "w_raw": float(raw_w),
+                "v_safe": 0.0,
+                "w_safe": 0.0,
+                "min_front": 0.0,
+                "min_wide": 0.0,
+                "min_rear": 0.0,
+                "min_overall": 0.0,
+                "is_stagnated": False,
+                "recovery_active": False,
+                "recovery_attempts": self.recovery_attempts,
+                "recovery_failed": False,
+            }
+            self.last_intervention = "forward_sensor_loss_stop"
+            self.stats["sensor_loss_stops"] += 1
+            self.stats["total_steps"] += 1
+            return 0.0, 0.0, diag
+
+        # Latched safe stop check: once recovery budget is permanently exhausted,
+        # remain in stationary safe stop until an explicit reset() is called
+        if self.recovery_failed_latched:
+            diag = {
+                "intervention": "safe_stop",
+                "sensor_loss": False,
+                "coverage": coverage,
+                "forward_coverage": forward_coverage,
+                "v_raw": float(raw_v),
+                "w_raw": float(raw_w),
+                "v_safe": 0.0,
+                "w_safe": 0.0,
+                "min_front": 0.0,
+                "min_wide": 0.0,
+                "min_rear": 0.0,
+                "min_overall": 0.0,
+                "is_stagnated": True,
+                "recovery_active": False,
+                "recovery_attempts": self.recovery_attempts,
+                "recovery_failed": True,
+            }
+            self.last_intervention = "safe_stop"
+            self.stats["safe_stops"] += 1
             self.stats["total_steps"] += 1
             return 0.0, 0.0, diag
 
@@ -196,15 +260,16 @@ class NavigationSafetyFilter:
                         self.recovery_attempts = 0
                         self.last_recovery_pos = None
 
-            # Trigger condition: imminent collision or forward freeze stagnation
+            # Trigger condition: direction-aware imminent collision or forward freeze stagnation
             front_is_blocked = min_front < (self.cfg.robot_radius + 0.05)
             imminent_collision = min_overall < (self.cfg.robot_radius + 0.015)
             stagnated_freeze = diag["is_stagnated"] and (front_is_blocked or raw_v < 0.05)
 
             if (imminent_collision or stagnated_freeze) and self.recovery_steps == 0:
                 if self.recovery_attempts >= self.cfg.max_recovery_attempts:
-                    # Finite recovery budget exhausted: transition to safe stop rather than spinning forever
+                    # Finite recovery budget exhausted: latch safe stop rather than spinning forever
                     self.recovery_attempts += 1
+                    self.recovery_failed_latched = True
                     safe_v = 0.0
                     safe_w = 0.0
                     diag["intervention"] = "safe_stop"
@@ -243,7 +308,8 @@ class NavigationSafetyFilter:
                     safe_w = 0.95 * self.recovery_direction * w_scale
                     diag["intervention"] = "recovery_pivot"
                 else:
-                    # Exhausted attempts: safe stationary halt
+                    # Exhausted attempts: latch stationary safe halt
+                    self.recovery_failed_latched = True
                     safe_v = 0.0
                     safe_w = 0.0
                     diag["intervention"] = "safe_stop"

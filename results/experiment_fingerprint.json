@@ -1,35 +1,43 @@
 {
-  "timestamp_utc": "2026-11-12T07:22:19.452498+00:00",
+  "fingerprint_version": "2.0",
+  "config_hash": "4c1aeea987b008670367a607f53d402f1780330df1da8ad014ec69e53530b930",
+  "git_commit": "8e58c33a9593872ed02f161532115ae797492420",
+  "git_dirty": true,
+  "timestamp_utc": "2026-11-12T09:45:07.987739+00:00",
+  "model_path": "models/ppo_navigation.zip",
+  "model_sha256": "0b1437389114ac2c971d2e3d60147d39755cdc12a355d4fbfb4f20d7564124bc",
   "episodes_per_condition": 100,
   "splits": [
-    "test",
-    "heldout"
+    "heldout",
+    "test"
   ],
-  "conditions": [
-    "nominal",
-    "lidar_noise",
-    "loc_drift"
-  ],
+  "conditions": {
+    "lidar_noise": {
+      "lidar_noise_std": 0.03,
+      "lidar_dropout": 0.05
+    },
+    "loc_drift": {
+      "loc_drift_pos": 0.004,
+      "loc_drift_yaw": 0.002
+    },
+    "nominal": {}
+  },
   "controllers": [
-    "reactive",
     "dwa_global",
-    "ppo_waypoint",
+    "mas_rl",
+    "ppo_gov_recovery",
+    "ppo_gov_steering",
     "ppo_governor",
-    "mas_rl"
+    "ppo_waypoint",
+    "reactive"
   ],
   "unique_layout_seeds": {
     "test": 100,
     "heldout": 100
   },
-  "test_seeds_config": {
-    "start": 10000,
-    "end": 10099,
-    "count": 100
-  },
-  "heldout_seeds_config": {
-    "start": 20000,
-    "end": 20099,
-    "count": 100
+  "manifest_hashes": {
+    "test": "f5364e34a4fe71eedaba8de318d1b195f191936cea7a729726b1ed2a08b889c9",
+    "heldout": "fd4fe00d0d289fd692fa02fcdfbd14d7772aaa0c9dec382473755d69be05b392"
   },
   "robot_kinematics": {
     "robot_radius": 0.22,
@@ -37,9 +45,23 @@
     "w_max": 1.0,
     "a_v_max": 1.0,
     "a_w_max": 3.2,
+    "dt": 0.1,
+    "n_sectors": 24,
+    "range_max": 3.5
+  },
+  "safety_config": {
     "reaction_time_s": 0.15,
     "max_recovery_attempts": 4,
-    "min_sensor_coverage": 0.5
+    "min_sensor_coverage": 0.5,
+    "forward_coverage_min": 0.5
   },
-  "model_path": "models/ppo_navigation.zip"
+  "dependency_versions": {
+    "python": "3.13.5",
+    "numpy": "2.5.4",
+    "pandas": "3.1.0",
+    "scipy": "1.18.1",
+    "gymnasium": "1.4.0",
+    "torch": "2.15.0+cpu",
+    "stable_baselines3": "2.9.2"
+  }
 }
