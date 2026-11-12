@@ -509,20 +509,14 @@ To evaluate local policy navigation without data leakage, we developed procedura
 
 Dimensional bounds across all topologies are: arena width $W \in [8.0, 12.0]\,\text{m}$, arena height $H \in [7.0, 10.0]\,\text{m}$, wall thickness $t_{\text{wall}} = 0.1\,\text{m}$, and occupancy grid resolution $\Delta_{\text{res}} = 0.1\,\text{m}$.
 
-### 6.2 Disjoint Seed Splits & Reconciliation of the ZigZag Sampling Protocol
-To ensure strict train/test separation, layouts are procedurally generated using disjoint integer seed sets:
+### 6.2 Disjoint Seed Splits & Layout Sampling Protocol
+To ensure strict train/test separation and avoid repeated layout sampling artifacts, layouts are procedurally generated using disjoint integer seed sets:
 - **Training Set (`train`):** Seeds `0` to `999` (1,000 distinct layouts from `open`, `corridor`, `clutter`, `rooms`).
-- **Validation Set (`val`):** Seeds `1000` to `1049` (50 distinct layouts used for checkpoint evaluation).
+- **Validation Set (`val`):** Seeds `1000` to `1049` (50 distinct layouts used for checkpoint evaluation and pre-registered model selection).
 - **Test Set (`test`):** Seeds `10000` to `10099` (100 distinct unseen layouts evenly distributed across the 4 familiar families, $n=25$ each).
-- **Held-Out Set (`heldout`):** Seeds `20000` to `20039` (40 distinct unseen layouts of the held-out `zigzag` family).
+- **Held-Out Set (`heldout`):** Seeds `20000` to `20099` (100 distinct unseen layouts of the held-out `zigzag` switchback family, 1 unique layout per episode, 100 independent trials never encountered during PPO training).
 
-**Sampling Protocol on the Held-Out ZigZag Split:**
-### 6.2 Independent Layout Seed Sampling & Generalization Protocol
-To ensure rigorous evaluation and avoid repeated layout sampling artifacts, both evaluation splits evaluate **100 strictly unique, non-overlapping layout seeds** ($N = 100$ per split):
-- **Test Split (Unseen Layouts from Familiar Families):** Seeds `10000` to `10099`, drawing 25 instances each from `open`, `corridor`, `clutter`, and `rooms`.
-- **Held-Out Split (Unseen ZigZag Switchback Topology):** Seeds `20000` to `20099`, generating 100 unique, structurally distinct ZigZag maze configurations never encountered during PPO training (1 unique layout per episode, 100 independent trials).
-
-A full cryptographic fingerprint and scenario manifest are tracked in `results/experiment_fingerprint.json` and `results/manifest_{test,heldout}.csv`. In addition to standard unclustered $95\%$ Wilson score confidence intervals, we compute layout-clustered bootstrap intervals and paired McNemar tests with exact two-sided binomial $p$-values (`results/paired_statistical_tests.csv`) to rigorously test significance against both unshielded PPO and classical DWA baselines.
+A full cryptographic fingerprint and scenario manifest are tracked in `results/experiment_fingerprint.json` and `results/manifest_{test,heldout}.csv`. In addition to standard $95\%$ Wilson score confidence intervals, we compute paired bootstrap intervals for SPL and paired McNemar tests with exact two-sided binomial $p$-values and Holm-Bonferroni corrections (`results/paired_statistical_tests.csv`) to rigorously test significance against both unshielded PPO and classical DWA baselines.
 
 ### 6.3 Controlled Perturbation Stress-Testing Models
 To evaluate controller robustness against sensor degradation and localization error, we implemented two stochastic perturbation models in Track A:

@@ -1,12 +1,12 @@
 {
-  "fingerprint_version": "2.1",
-  "config_hash": "c1c59075a2ba0d616ee70b8ef1d9b006b0f7577b888788dfc1a45c7c8db3f8b6",
-  "git_commit": "c0dae4c324b1e90a20ccdbe9449fb979076e20ac",
-  "git_dirty": false,
+  "fingerprint_version": "2.2",
+  "config_hash": "94c7786c57f693957a4d1983156b0e313bf46824f2e6fd61ec50ebaf696f5369",
+  "git_commit": "e08b342932f93c643b3077a955ca4e4de930b9ba",
+  "git_dirty": true,
   "scenario_seed": 0,
-  "timestamp_utc": "2026-11-12T11:53:05.565530+00:00",
-  "model_path": "models/ppo_navigation.zip",
-  "model_sha256": "0b1437389114ac2c971d2e3d60147d39755cdc12a355d4fbfb4f20d7564124bc",
+  "timestamp_utc": "2026-11-12T13:39:37.830081+00:00",
+  "model_path": "models/best/best_model.zip",
+  "model_sha256": "b703a6a95325ebd6a2c3ac2f59e0e4129d5c617928344d04893e33501f8ab1d9",
   "episodes_per_condition": 100,
   "splits": [
     "heldout",
@@ -37,7 +37,7 @@
     "heldout": 100
   },
   "manifest_hashes": {
-    "test": "b5d6ffc0feec6cf026d6f2a949e10413806b3f9415608798dd469a3ba4d39db8",
+    "test": "cf69128917000e266a0731215811305b20f014858998ed2c9cea6cb0b25612a7",
     "heldout": "beed7ebd037d124fed62a74bfdc1c74af9c9e5a46ea49f594acec24f691aa209"
   },
   "robot_kinematics": {
@@ -71,7 +71,23 @@
     "stagnation_history_len": 15.0,
     "stop_distance_margin": 0.04
   },
-  "dependency_versions": {
+  "reward_parameters": {
+    "r_progress": 10.0,
+    "r_goal": 50.0,
+    "r_collision": -50.0,
+    "r_step": -0.02,
+    "r_turn": -0.02,
+    "r_proximity": -0.5,
+    "prox_dist": 0.6
+  },
+  "training_environment": {
+    "python": "3.13.18",
+    "torch": "2.14.1+cu130",
+    "sb3": "2.9.2",
+    "gymnasium": "1.4.0",
+    "numpy": "2.5.3"
+  },
+  "evaluation_environment": {
     "python": "3.13.5",
     "numpy": "2.5.4",
     "pandas": "3.1.0",
@@ -79,5 +95,6 @@
     "gymnasium": "1.4.0",
     "torch": "2.15.0+cpu",
     "stable_baselines3": "2.9.2"
-  }
+  },
+  "checkpoint_selection": "validation_success_rate (tie-break: SPL)"
 }

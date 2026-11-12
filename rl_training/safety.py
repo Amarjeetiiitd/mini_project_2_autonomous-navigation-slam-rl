@@ -145,10 +145,11 @@ class NavigationSafetyFilter:
                 "recovery_attempts": self.recovery_attempts,
                 "recovery_failed": False,
             }
-            self.last_intervention = "sensor_loss_stop"
-            self.stats["sensor_loss_stops"] += 1
+            if self.last_intervention not in ("sensor_loss_stop", "forward_sensor_loss_stop"):
+                self.stats["sensor_loss_stops"] += 1
             self.stats["sensor_loss_stop_steps"] += 1
             self.stats["total_steps"] += 1
+            self.last_intervention = "sensor_loss_stop"
             self.last_w = 0.0
             return 0.0, 0.0, diag
         elif raw_v > 0 and forward_coverage < self.cfg.forward_coverage_min:
@@ -170,10 +171,11 @@ class NavigationSafetyFilter:
                 "recovery_attempts": self.recovery_attempts,
                 "recovery_failed": False,
             }
-            self.last_intervention = "forward_sensor_loss_stop"
-            self.stats["sensor_loss_stops"] += 1
+            if self.last_intervention not in ("sensor_loss_stop", "forward_sensor_loss_stop"):
+                self.stats["sensor_loss_stops"] += 1
             self.stats["sensor_loss_stop_steps"] += 1
             self.stats["total_steps"] += 1
+            self.last_intervention = "forward_sensor_loss_stop"
             self.last_w = 0.0
             return 0.0, 0.0, diag
 
@@ -198,10 +200,11 @@ class NavigationSafetyFilter:
                 "recovery_attempts": self.recovery_attempts,
                 "recovery_failed": True,
             }
-            self.last_intervention = "safe_stop"
-            self.stats["safe_stops"] += 1
+            if self.last_intervention != "safe_stop":
+                self.stats["safe_stops"] += 1
             self.stats["safe_stop_steps"] += 1
             self.stats["total_steps"] += 1
+            self.last_intervention = "safe_stop"
             self.last_w = 0.0
             return 0.0, 0.0, diag
 
@@ -287,10 +290,11 @@ class NavigationSafetyFilter:
                     diag["recovery_failed"] = True
                     diag["v_safe"] = safe_v
                     diag["w_safe"] = safe_w
-                    self.last_intervention = "safe_stop"
-                    self.stats["safe_stops"] += 1
+                    if self.last_intervention != "safe_stop":
+                        self.stats["safe_stops"] += 1
                     self.stats["safe_stop_steps"] += 1
                     self.stats["total_steps"] += 1
+                    self.last_intervention = "safe_stop"
                     self.last_w = 0.0
                     return safe_v, safe_w, diag
 
@@ -317,9 +321,15 @@ class NavigationSafetyFilter:
                     # Rear is obstructed: execute footprint-damped in-place pivot rotation
                     safe_v = 0.0
                     rot_clearance = min(left_flank, right_flank)
-                    w_scale = float(np.clip((rot_clearance - self.cfg.robot_radius) / 0.15, 0.35, 1.0))
-                    safe_w = 0.95 * self.recovery_direction * w_scale
-                    diag["intervention"] = "recovery_pivot"
+                    required_clearance = self.cfg.robot_radius + self.cfg.stop_distance_margin
+                    if rot_clearance <= required_clearance:
+                        safe_v = 0.0
+                        safe_w = 0.0
+                        diag["intervention"] = "safe_stop"
+                    else:
+                        w_scale = float(np.clip((rot_clearance - required_clearance) / 0.15, 0.0, 1.0))
+                        safe_w = 0.95 * self.recovery_direction * w_scale
+                        diag["intervention"] = "recovery_pivot"
                 else:
                     # Exhausted attempts: latch stationary safe halt
                     self.recovery_failed_latched = True
@@ -330,15 +340,16 @@ class NavigationSafetyFilter:
 
                 diag["v_safe"] = safe_v
                 diag["w_safe"] = safe_w
-                self.last_intervention = diag["intervention"]
                 self.stats["total_steps"] += 1
                 if diag["intervention"] == "recovery_reverse":
                     self.stats["recovery_reverses"] += 1
                 elif diag["intervention"] == "recovery_pivot":
                     self.stats["recovery_pivots"] += 1
                 else:
-                    self.stats["safe_stops"] += 1
+                    if self.last_intervention != "safe_stop":
+                        self.stats["safe_stops"] += 1
                     self.stats["safe_stop_steps"] += 1
+                self.last_intervention = diag["intervention"]
                 self.last_w = safe_w
                 return safe_v, safe_w, diag
 

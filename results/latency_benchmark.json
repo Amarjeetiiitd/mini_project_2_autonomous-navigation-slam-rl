@@ -1,6 +1,6 @@
 {
   "metadata": {
-    "timestamp": "2026-11-12 11:43:25Z",
+    "timestamp": "2026-11-12 13:21:28Z",
     "platform": "Windows-11-10.0.26300-SP0",
     "processor": "AMD64 Family 25 Model 116 Stepping 1, AuthenticAMD",
     "python_version": "3.13.5",
@@ -8,36 +8,61 @@
     "torch_threads": 8,
     "n_warmup": 100,
     "n_eval": 1000,
-    "device": "cpu"
+    "device": "cpu",
+    "evaluated_model": "models/best/best_model.zip"
   },
   "ppo_forward_pass": {
-    "mean_ms": 0.358,
-    "std_ms": 0.141,
-    "median_ms": 0.321,
-    "p90_ms": 0.482,
-    "p95_ms": 0.556,
-    "p99_ms": 0.905,
-    "min_ms": 0.172,
-    "max_ms": 1.578
+    "mean_ms": 0.22,
+    "std_ms": 0.074,
+    "median_ms": 0.188,
+    "p90_ms": 0.311,
+    "p95_ms": 0.355,
+    "p99_ms": 0.51,
+    "min_ms": 0.165,
+    "max_ms": 0.803
   },
   "safety_filter_pass": {
-    "mean_ms": 0.021,
+    "mean_ms": 0.035,
     "std_ms": 0.016,
-    "median_ms": 0.022,
-    "p90_ms": 0.029,
-    "p95_ms": 0.032,
-    "p99_ms": 0.059,
-    "min_ms": 0.011,
-    "max_ms": 0.415
+    "median_ms": 0.028,
+    "p90_ms": 0.05,
+    "p95_ms": 0.062,
+    "p99_ms": 0.096,
+    "min_ms": 0.027,
+    "max_ms": 0.249
   },
-  "end_to_end_mas_rl": {
-    "mean_ms": 0.445,
-    "std_ms": 0.179,
-    "median_ms": 0.394,
-    "p90_ms": 0.604,
-    "p95_ms": 0.694,
-    "p99_ms": 1.241,
-    "min_ms": 0.227,
-    "max_ms": 1.99
+  "policy_and_safety_filter": {
+    "mean_ms": 0.325,
+    "std_ms": 0.116,
+    "median_ms": 0.279,
+    "p90_ms": 0.44,
+    "p95_ms": 0.548,
+    "p99_ms": 0.781,
+    "min_ms": 0.246,
+    "max_ms": 1.611
+  },
+  "full_pipeline_obs_to_cmd": {
+    "mean_ms": 0.446,
+    "std_ms": 0.117,
+    "median_ms": 0.409,
+    "p90_ms": 0.599,
+    "p95_ms": 0.662,
+    "p99_ms": 0.848,
+    "min_ms": 0.326,
+    "max_ms": 1.08
+  },
+  "dwa_trajectory_evaluation": {
+    "mean_ms": 0.416,
+    "std_ms": 0.12,
+    "median_ms": 0.367,
+    "p90_ms": 0.574,
+    "p95_ms": 0.632,
+    "p99_ms": 0.832,
+    "min_ms": 0.301,
+    "max_ms": 1.074
+  },
+  "comparisons": {
+    "dwa_to_mas_rl_pipeline_speedup": 0.9,
+    "dwa_to_policy_filter_speedup": 1.31
   }
 }

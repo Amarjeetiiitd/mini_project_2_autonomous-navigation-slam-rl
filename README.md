@@ -204,7 +204,7 @@ Evaluated across **100 matched scenario trials per experimental condition** (see
    - MAS-RL executes in **$1.2\,\text{ms}$ CPU time** ($< 2\%$ of a 10 Hz period), narrows the performance gap with DWA, and reaches 73% vs 72% under held-out sensor noise (paired difference is not statistically significant, $p=1.0$). DWA remains superior in 5 of the 6 evaluation cells.
 3. **Decoupled Dual-Track Methodology:**
    - **Track A:** High-throughput 2D procedural Gymnasium simulation benchmark ($N=100$ matched trials per condition across 100 unique seeds, with 95% Wilson Score CIs, bootstrap SPL intervals, and Holm-Bonferroni FWER statistical control).
-   - **Track B:** Embodied ROS 2 Jazzy, Gazebo Harmonic, and SLAM Toolbox software integration architecture with verified message structures, TF2 lookups, and standalone CPU policy inference latency ($1.2\,\text{ms}$).
+   - **Track B:** Embodied ROS 2 Jazzy, Gazebo Harmonic, and SLAM Toolbox software integration architecture with verified message structures, TF2 lookups, and sub-millisecond CPU inference latency ($0.41\,\text{ms}$ full pipeline, $0.19\,\text{ms}$ PPO forward pass).
 
 ---
 

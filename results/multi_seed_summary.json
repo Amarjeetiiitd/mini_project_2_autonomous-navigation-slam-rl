@@ -1,0 +1,129 @@
+{
+  "seeds": [
+    0
+  ],
+  "timesteps": 300000,
+  "episodes_per_seed": 100,
+  "results": [
+    {
+      "split": "heldout",
+      "condition": "lidar_noise",
+      "controller": "mas_rl",
+      "n_training_seeds": 1,
+      "success_mean": 0.81,
+      "success_std": 0.0,
+      "spl_mean": 0.7762,
+      "spl_std": 0.0
+    },
+    {
+      "split": "heldout",
+      "condition": "lidar_noise",
+      "controller": "ppo_waypoint",
+      "n_training_seeds": 1,
+      "success_mean": 0.56,
+      "success_std": 0.0,
+      "spl_mean": 0.5442,
+      "spl_std": 0.0
+    },
+    {
+      "split": "heldout",
+      "condition": "loc_drift",
+      "controller": "mas_rl",
+      "n_training_seeds": 1,
+      "success_mean": 0.64,
+      "success_std": 0.0,
+      "spl_mean": 0.6211,
+      "spl_std": 0.0
+    },
+    {
+      "split": "heldout",
+      "condition": "loc_drift",
+      "controller": "ppo_waypoint",
+      "n_training_seeds": 1,
+      "success_mean": 0.56,
+      "success_std": 0.0,
+      "spl_mean": 0.5445,
+      "spl_std": 0.0
+    },
+    {
+      "split": "heldout",
+      "condition": "nominal",
+      "controller": "mas_rl",
+      "n_training_seeds": 1,
+      "success_mean": 0.62,
+      "success_std": 0.0,
+      "spl_mean": 0.6009,
+      "spl_std": 0.0
+    },
+    {
+      "split": "heldout",
+      "condition": "nominal",
+      "controller": "ppo_waypoint",
+      "n_training_seeds": 1,
+      "success_mean": 0.56,
+      "success_std": 0.0,
+      "spl_mean": 0.5442,
+      "spl_std": 0.0
+    },
+    {
+      "split": "test",
+      "condition": "lidar_noise",
+      "controller": "mas_rl",
+      "n_training_seeds": 1,
+      "success_mean": 0.87,
+      "success_std": 0.0,
+      "spl_mean": 0.8332,
+      "spl_std": 0.0
+    },
+    {
+      "split": "test",
+      "condition": "lidar_noise",
+      "controller": "ppo_waypoint",
+      "n_training_seeds": 1,
+      "success_mean": 0.73,
+      "success_std": 0.0,
+      "spl_mean": 0.7014,
+      "spl_std": 0.0
+    },
+    {
+      "split": "test",
+      "condition": "loc_drift",
+      "controller": "mas_rl",
+      "n_training_seeds": 1,
+      "success_mean": 0.8,
+      "success_std": 0.0,
+      "spl_mean": 0.7695,
+      "spl_std": 0.0
+    },
+    {
+      "split": "test",
+      "condition": "loc_drift",
+      "controller": "ppo_waypoint",
+      "n_training_seeds": 1,
+      "success_mean": 0.76,
+      "success_std": 0.0,
+      "spl_mean": 0.7314,
+      "spl_std": 0.0
+    },
+    {
+      "split": "test",
+      "condition": "nominal",
+      "controller": "mas_rl",
+      "n_training_seeds": 1,
+      "success_mean": 0.8,
+      "success_std": 0.0,
+      "spl_mean": 0.7704,
+      "spl_std": 0.0
+    },
+    {
+      "split": "test",
+      "condition": "nominal",
+      "controller": "ppo_waypoint",
+      "n_training_seeds": 1,
+      "success_mean": 0.73,
+      "success_std": 0.0,
+      "spl_mean": 0.7014,
+      "spl_std": 0.0
+    }
+  ]
+}

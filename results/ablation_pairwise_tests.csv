@@ -1,0 +1,11 @@
+split,comparison,controller_a,controller_b,success_a,success_b,delta_b_minus_a,discordant_b_wins,discordant_a_wins,mcnemar_p_unadjusted,mcnemar_p_holm,significant_holm_fwer
+test,Governor vs Governor+Steering,ppo_governor,ppo_gov_steering,0.83,0.82,-0.01,0,1,1.0,1.0,False
+test,Governor vs Governor+Recovery,ppo_governor,ppo_gov_recovery,0.83,0.83,0.0,0,0,1.0,1.0,False
+test,Governor+Steering vs Full MAS-RL,ppo_gov_steering,mas_rl,0.82,0.84,0.02,3,1,0.625,1.0,False
+test,Governor+Recovery vs Full MAS-RL,ppo_gov_recovery,mas_rl,0.83,0.84,0.01,2,1,1.0,1.0,False
+test,Governor vs Full MAS-RL,ppo_governor,mas_rl,0.83,0.84,0.01,2,1,1.0,1.0,False
+heldout,Governor vs Governor+Steering,ppo_governor,ppo_gov_steering,0.56,0.56,0.0,0,0,1.0,1.0,False
+heldout,Governor vs Governor+Recovery,ppo_governor,ppo_gov_recovery,0.56,0.55,-0.01,1,2,1.0,1.0,False
+heldout,Governor+Steering vs Full MAS-RL,ppo_gov_steering,mas_rl,0.56,0.6,0.04,5,1,0.21875,0.8984375,False
+heldout,Governor+Recovery vs Full MAS-RL,ppo_gov_recovery,mas_rl,0.55,0.6,0.05,7,2,0.1796875,0.8984375,False
+heldout,Governor vs Full MAS-RL,ppo_governor,mas_rl,0.56,0.6,0.04,5,1,0.21875,0.8984375,False

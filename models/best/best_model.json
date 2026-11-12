@@ -1,0 +1,30 @@
+{
+  "goal_mode": "waypoint",
+  "env_kwargs": {
+    "goal_mode": "waypoint",
+    "lidar_noise_std": 0.0,
+    "lidar_dropout": 0.0,
+    "loc_drift_pos": 0.0,
+    "loc_drift_yaw": 0.0
+  },
+  "timesteps": 300000,
+  "seed": 0,
+  "n_envs": 2,
+  "obs_dim": 29,
+  "lookahead": 1.5,
+  "v_max": 0.26,
+  "w_max": 1.0,
+  "checkpoint_type": "best_validation_model",
+  "selection_metric": "validation_reward_and_success",
+  "train_layout_seeds": [
+    0,
+    999
+  ],
+  "versions": {
+    "python": "3.13.18",
+    "torch": "2.14.1+cu130",
+    "sb3": "2.9.2",
+    "gymnasium": "1.4.0",
+    "numpy": "2.5.3"
+  }
+}

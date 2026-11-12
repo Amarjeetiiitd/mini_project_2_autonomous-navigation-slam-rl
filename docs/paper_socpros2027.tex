@@ -47,11 +47,11 @@ Despite widespread commercial use, classical trajectory rollout planners such as
 
 To bridge these gaps, this paper establishes five core contributions:
 \begin{enumerate}
-    \item \textbf{Formalization of the Safety-Conservatism Dichotomy:} We prove experimentally across 100 matched trials that DWA achieves zero collisions ($0.0\%$) but fails strictly via conservative timeouts ($7.0\%$ test, $14.0\%$ ZigZag), whereas raw PPO achieves zero timeouts ($0.0\%$) but collapses on held-out labyrinths via collisions ($50.0\%$).
-    \item \textbf{Medial-Axis Clearance-Weighted Planning \& Taut String-Pulling:} We formulate an 8-connected quadratic clearance penalty on the global geodesic field that naturally centers paths along corridor and doorway medians, coupled with $\Theta^*$-style string-pulling for true Euclidean shortcutting.
+    \item \textbf{Formalization of the Safety-Conservatism Dichotomy:} We demonstrate experimentally across 100 matched trials that classical DWA achieves zero collisions ($0.0\%$) but fails via conservative timeouts ($13.0\%$ test, $35.0\%$ held-out switchbacks), whereas raw unshielded PPO achieves low timeouts ($\le 1.0\%$) but collapses on held-out switchback topologies via collisions ($49.0\%$).
+    \item \textbf{Clearance-Weighted Geodesic Planning \& Taut String-Pulling:} We formulate an 8-connected quadratic clearance penalty on the global geodesic field that naturally centers paths along corridor and doorway medians, coupled with $\Theta^*$-style string-pulling for Euclidean shortcutting.
     \item \textbf{Autonomous Dynamic Impasse Replanning:} We formulate an impasse watchdog that dynamically detects stagnation, triggering sub-$4\,\text{ms}$ wave-front discovery of open alternative corridors.
-    \item \textbf{Active 4-Layer Dynamic Safety Shield (Discrete CBF):} We derive an analytical stopping governor ($v \le \sqrt{2 a_v^{\max} d_{\text{clear}}}$), lateral repulsion, and non-sticky wall disengagement. This boosts nominal success to \textbf{90.0\% [0.83, 0.94]}, and restores held-out ZigZag success to \textbf{84.0\% [0.76, 0.90]} ($0.0\%$ timeouts).
-    \item \textbf{Dual-Track Verification \& Interactive GUI:} Decoupling high-sample-efficiency 2D Gymnasium benchmarking ($>10{,}000$ steps/sec) from embodied ROS 2 Jazzy, Gazebo Harmonic, and SLAM Toolbox deployment ($1.2\,\text{ms}$ inference latency).
+    \item \textbf{Active 4-Layer Dynamic Safety Shield:} We derive an analytical stopping-distance governor ($v \le \sqrt{2 a_v^{\max} d_{\text{clear}}}$), lateral corridor repulsion, verified rear-clearance reverse recovery, and non-sticky wall disengagement. This achieves \textbf{84.0\% [0.76, 0.90]} nominal test success, and restores held-out ZigZag success to \textbf{60.0\% [0.50, 0.69]} (nominal) and \textbf{73.0\% [0.64, 0.81]} (under LiDAR noise, $p = 1.53 \times 10^{-5}$ Holm-Bonferroni corrected vs. PPO), while slashing collisions to $1.0\%$.
+    \item \textbf{Dual-Track Verification \& Latency Benchmarking:} Decoupling high-sample-efficiency 2D Gymnasium benchmarking from the open-source ROS 2 Jazzy, Gazebo Harmonic, and SLAM Toolbox integration architecture, backed by a rigorous CPU latency benchmark ($0.41\,\text{ms}$ full pipeline).
 \end{enumerate}
 
 \section{Related Work}
@@ -59,7 +59,7 @@ To bridge these gaps, this paper establishes five core contributions:
 
 \textbf{DRL Benchmarking Suites:} Francis et al.~\cite{francis2020prmrl} introduced PRM-RL, demonstrating that global topological graphs combined with RL local policies enable long-range indoor navigation. Wijmans et al.~\cite{wijmans2020ddppo} demonstrated decentralized distributed PPO for large-scale point-goal navigation. Kästner et al.~\cite{kastner2021arena, kastner2022arenabench} developed Arena-Rosnav and Arena-Bench to benchmark DRL in ROS/ROS 2, while Perumalla et al.~\cite{perumalla2020barn} introduced the BARN dataset for constrained spaces. Our work extends these benchmarks by reporting 95\% Wilson Score and bootstrap confidence intervals, formalizing failure modes, and demonstrating out-of-distribution recovery.
 
-\textbf{Runtime Safety Shields and Barrier Functions:} Control Barrier Functions (CBFs)~\cite{ames2019cbf, cheng2019endtoend} ensure forward invariance of safe state sets via online Quadratic Programs (CBF-QPs). Execution-time action replacement~\cite{chiang2021execution} and Velocity Obstacle shields~\cite{kastner2022velocity} substitute recovery actions upon hazard detection. In this work, our analytical stopping-distance governor enforces discrete-time CBF guarantees with sub-millisecond execution overhead.
+\textbf{Runtime Safety Shields and Barrier Functions:} Control Barrier Functions (CBFs)~\cite{ames2019cbf, cheng2019endtoend} ensure forward invariance of safe state sets via online Quadratic Programs (CBF-QPs). Execution-time action replacement~\cite{chiang2021execution} and Velocity Obstacle shields~\cite{kastner2022velocity} substitute recovery actions upon hazard detection. In this work, our analytical stopping-distance governor enforces predictive kinematic braking constraints ($v \le \sqrt{2 a_v^{\max} d_{\text{clear}}}$) with sub-millisecond execution overhead.
 
 \section{System Formulation and Architecture}
 
@@ -126,13 +126,13 @@ We evaluate controllers across 100 matched scenario instances per condition with
 Test & Reactive Baseline & 0.430 [0.34, 0.53] & 0.560 & 0.010 & 0.430 [0.33, 0.53] & 17.0 \\
 Test & DWA + Global Plan & \textbf{0.870 [0.79, 0.92]} & \textbf{0.000} & 0.130 & \textbf{0.860 [0.79, 0.92]} & 19.8 \\
 Test & Raw PPO (Waypoint) & 0.790 [0.70, 0.86] & 0.200 & \textbf{0.010} & 0.780 [0.69, 0.86] & 19.9 \\
-Test & PPO Governor (Layer 2 CBF) & 0.830 [0.74, 0.89] & \textbf{0.010} & 0.160 & 0.820 [0.75, 0.89] & 20.3 \\
+Test & PPO Governor (Layer 2) & 0.830 [0.74, 0.89] & \textbf{0.010} & 0.160 & 0.820 [0.75, 0.89] & 20.3 \\
 Test & \textbf{MAS-RL (Full 4-Layer Shield)} & 0.840 [0.76, 0.90] & \textbf{0.010} & 0.150 & 0.832 [0.76, 0.90] & 20.9 \\
 \midrule
 Held-Out & Reactive Baseline & 0.480 [0.38, 0.58] & 0.500 & 0.020 & 0.480 [0.38, 0.58] & 16.0 \\
 Held-Out & DWA + Global Plan & \textbf{0.650 [0.55, 0.74]} & \textbf{0.000} & 0.350 & \textbf{0.644 [0.55, 0.73]} & 17.1 \\
 Held-Out & Raw PPO (Waypoint) & 0.510 [0.41, 0.61] & 0.490 & \textbf{0.000} & 0.509 [0.41, 0.60] & 15.4 \\
-Held-Out & PPO Governor (Layer 2 CBF) & 0.560 [0.46, 0.65] & \textbf{0.000} & 0.440 & 0.559 [0.46, 0.65] & 16.1 \\
+Held-Out & PPO Governor (Layer 2) & 0.560 [0.46, 0.65] & \textbf{0.000} & 0.440 & 0.559 [0.46, 0.65] & 16.1 \\
 Held-Out & \textbf{MAS-RL (Full 4-Layer Shield)} & \textbf{0.600 [0.50, 0.69]} & \textbf{0.010} & 0.390 & \textbf{0.597 [0.51, 0.69]} & 19.1 \\
 \bottomrule
 \end{tabular}
@@ -181,11 +181,11 @@ Held-Out & MAS-RL & 197.4 & 0.5 & 5.0 & 7.2 & 41.0 & 251.0 (64.3\%) \\
 \end{tabular}
 \end{table}
 
-\subsection{ROS 2 Embodied Pipeline \& Latency Benchmark}
-The frozen policy is deployed in ROS 2 Jazzy and Gazebo Harmonic on a TurtleBot3 Waffle. TF2 asynchronously resolves \texttt{map -> base\_link} using SLAM Toolbox graph updates. On a standard multi-core CPU, the forward inference pass takes \textbf{$1.2\,\text{ms}$}, consuming $< 2\%$ of the $100\,\text{ms}$ (10 Hz) control budget and confirming suitability for real-time edge microcontrollers.
+\subsection{ROS 2 Embodied Architecture \& CPU Latency Benchmark}
+To support open-source deployment, an integration architecture is packaged for ROS 2 Jazzy, Gazebo Harmonic, and SLAM Toolbox. TF2 resolves \texttt{map -> base\_link} for waypoint-relative tracking. In dedicated CPU latency benchmarks ($N=1{,}000$ iterations on AMD Ryzen), the policy forward pass executes in $0.19\,\text{ms}$ (median), the 4-layer safety shield in $0.03\,\text{ms}$, and the entire observation-to-command pipeline in $0.41\,\text{ms}$ (median, $0.85\,\text{ms}$ p99), matching classical DWA ($0.37\,\text{ms}$) while consuming less than $0.5\%$ of the $100\,\text{ms}$ (10 Hz) robotics control period.
 
 \section{Conclusion}
-This paper presented Medial-Axis Shielded Reinforcement Learning (MAS-RL) for autonomous mobile robot navigation. By formalizing the safety-conservatism dichotomy, introducing clearance-weighted medial axis planning, and formulating an active 4-layer predictive safety shield with discrete kinematic stopping governor and reverse recovery, our framework cuts out-of-distribution collisions on unseen ZigZag switchbacks from $49.0\%$ to \textbf{1.0\%}, elevates success to \textbf{60.0\% [0.50, 0.69]} (nominal) and \textbf{73.0\% [0.64, 0.81]} (under LiDAR noise, surpassing DWA's 72.0\%), and achieves \textbf{84.0\% [0.76, 0.90]} test success while running $7\times$ faster on CPU at $1.2\,\text{ms}$. Future work will investigate multi-seed policy ensembles and hardware validation in physical human crowds.
+This paper presented Medial-Axis Shielded Reinforcement Learning (MAS-RL) for autonomous mobile robot navigation. By formalizing the safety-conservatism dichotomy, introducing clearance-weighted geodesic planning, and formulating an active 4-layer predictive safety shield with discrete kinematic stopping governor and reverse recovery, our framework cuts out-of-distribution collisions on unseen ZigZag switchbacks from $49.0\%$ to \textbf{1.0\%}, elevates success to \textbf{60.0\% [0.50, 0.69]} (nominal) and \textbf{73.0\% [0.64, 0.81]} (under LiDAR noise, $p = 1.53 \times 10^{-5}$ Holm-Bonferroni corrected vs. PPO), and achieves \textbf{84.0\% [0.76, 0.90]} test success while maintaining sub-millisecond execution latency on CPU ($0.41\,\text{ms}$). Future work will investigate multi-seed policy ensembles and hardware validation in physical human crowds.
 
 \bibliographystyle{splncs04}
 \begin{thebibliography}{10}

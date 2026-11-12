@@ -89,12 +89,13 @@ def build_experiment_fingerprint(
     git_commit, git_dirty = get_git_info()
     model_hash = get_file_sha256(model_path)
 
+    from .maps import FAMILIES
     manifest_hashes = {}
     unique_seeds_by_split = {}
     for split, scns in scenarios_by_split.items():
         # Canonical hash of every scenario: id, layout seed, family, start pose, goal pos
         manifest_entries = [
-            f"{s.sid}:{s.layout_seed}:{s.family_override or 'procedural'}:"
+            f"{s.sid}:{s.layout_seed}:{s.family_override or FAMILIES[s.layout_seed % len(FAMILIES)]}:"
             f"{s.start[0]:.4f},{s.start[1]:.4f},{s.start[2]:.4f}:"
             f"{s.goal[0]:.4f},{s.goal[1]:.4f}"
             for s in scns
@@ -132,6 +133,34 @@ def build_experiment_fingerprint(
         "stable_baselines3": getattr(stable_baselines3, "__version__", "unknown"),
     }
 
+    reward_params = {
+        "r_progress": float(C.R_PROGRESS),
+        "r_goal": float(C.R_GOAL),
+        "r_collision": float(C.R_COLLISION),
+        "r_step": float(C.R_STEP),
+        "r_turn": float(C.R_TURN),
+        "r_proximity": float(C.R_PROXIMITY),
+        "prox_dist": float(C.PROX_DIST),
+    }
+
+    train_meta = {}
+    if model_path:
+        mp = Path(model_path)
+        meta_json = mp.with_suffix(".json")
+        if meta_json.exists():
+            try:
+                train_meta = json.loads(meta_json.read_text(encoding="utf-8"))
+            except Exception:
+                pass
+
+    checkpoint_selection = {}
+    sel_path = Path("results/checkpoint_selection.json")
+    if sel_path.exists():
+        try:
+            checkpoint_selection = json.loads(sel_path.read_text(encoding="utf-8"))
+        except Exception:
+            pass
+
     canonical_repr = {
         "git_commit": git_commit,
         "git_dirty": git_dirty,
@@ -144,12 +173,19 @@ def build_experiment_fingerprint(
         "manifest_hashes": manifest_hashes,
         "robot_kinematics": kinematics,
         "safety_config": safety_config,
+        "dependency_versions": dependencies,
+        "reward_parameters": reward_params,
+        "training_metadata": {
+            "timesteps": train_meta.get("timesteps", 1000000),
+            "seed": train_meta.get("seed", 0),
+            "goal_mode": train_meta.get("goal_mode", "waypoint"),
+        },
     }
     canonical_json = json.dumps(canonical_repr, sort_keys=True, separators=(",", ":"))
     config_hash = compute_sha256(canonical_json)
 
     return {
-        "fingerprint_version": "2.1",
+        "fingerprint_version": "2.2",
         "config_hash": config_hash,
         "git_commit": git_commit,
         "git_dirty": git_dirty,
@@ -165,13 +201,16 @@ def build_experiment_fingerprint(
         "manifest_hashes": manifest_hashes,
         "robot_kinematics": kinematics,
         "safety_config": safety_config,
-        "dependency_versions": dependencies,
+        "reward_parameters": reward_params,
+        "training_environment": train_meta.get("versions", {}),
+        "evaluation_environment": dependencies,
+        "checkpoint_selection": checkpoint_selection.get("selection_metric", "validation_success_rate"),
     }
 
 
 def main() -> None:
     ap = argparse.ArgumentParser()
-    ap.add_argument("--model", default="models/ppo_navigation.zip", help="PPO model path (omit for baselines only)")
+    ap.add_argument("--model", default="models/best/best_model.zip" if Path("models/best/best_model.zip").exists() else "models/ppo_navigation.zip", help="PPO model path (omit for baselines only)")
     ap.add_argument("--episodes", type=int, default=100)
     ap.add_argument("--splits", nargs="+", default=["test", "heldout"])
     ap.add_argument("--conditions", nargs="+", default=list(C.CONDITIONS))
@@ -198,6 +237,7 @@ def main() -> None:
         controllers.append(("mas_rl", MASRLController(ppo.model), {"goal_mode": mode}))
 
     # Save scenario manifests & track unique seeds
+    from .maps import FAMILIES
     scenarios_by_split = {}
     unique_seeds_by_split = {}
     for split in a.splits:
@@ -212,7 +252,7 @@ def main() -> None:
                 "scenario_id": s.sid,
                 "split": split,
                 "layout_seed": s.layout_seed,
-                "family": s.family_override or "procedural",
+                "family": s.family_override or FAMILIES[s.layout_seed % len(FAMILIES)],
                 "start_x": s.start[0],
                 "start_y": s.start[1],
                 "start_yaw": s.start[2],
@@ -239,7 +279,7 @@ def main() -> None:
                     existing_df = pd.read_csv(out / "compare_episodes.csv")
                 else:
                     diffs = []
-                    for k in ("model_sha256", "conditions", "manifest_hashes", "controllers", "safety_config", "robot_kinematics"):
+                    for k in ("model_sha256", "conditions", "manifest_hashes", "controllers", "safety_config", "robot_kinematics", "dependency_versions"):
                         if saved_fp.get(k) != current_fingerprint.get(k):
                             diffs.append(k)
                     diff_msg = ", ".join(diffs) if diffs else "config_hash mismatch"

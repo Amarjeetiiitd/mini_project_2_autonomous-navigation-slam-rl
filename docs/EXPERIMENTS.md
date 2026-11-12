@@ -7,11 +7,15 @@ All commands run from the project root with the venv active.
 | Goal | Command |
 |---|---|
 | Learning curves | `python -m rl_training.plot_training --log-dir logs/ppo_navigation` |
+| Checkpoint selection audit | `python scripts/compare_checkpoints.py` (evaluates candidates on disjoint validation split; records `results/checkpoint_selection.json`) |
 | E3 unseen layouts | `python -m rl_training.evaluate --split test --episodes 100` (evaluates 100 unique layouts; passing `--episodes 200` evaluates 2 trials per layout) |
 | E3 unseen family | `python -m rl_training.evaluate --split heldout --episodes 100` |
-| E4 + E5 + E6a (all controllers x conditions x splits) | `python -m rl_training.compare --model models/ppo_navigation --episodes 100` |
-| E1/E2 per-family | `results/compare_by_family.csv` (written by `compare`) |
-| Trajectory figures | `python -m rl_training.visualize --model models/ppo_navigation --split heldout --n 6` |
+| Full 7-controller benchmark (E4+E5+E6) | `python -m rl_training.compare --model models/best/best_model.zip --episodes 100 --include-ablations` (evaluates 4,200 episodes across 7 controllers, 3 conditions, 2 splits) |
+| Ablation synchronization & pairwise tests | `python -m rl_training.ablation` (re-syncs `results/ablation_summary.csv` and `results/ablation_pairwise_tests.csv`) |
+| CPU latency benchmark | `python scripts/benchmark_inference_latency.py` (measures microbenchmarks, full obs-to-cmd pipeline, and DWA latency) |
+| Multi-seed training & evaluation | `python scripts/train_multi_seed.py --seeds 0 1 2` |
+| E1/E2 per-family breakdown | `results/compare_by_family.csv` (written by `compare`) |
+| Trajectory figures | `python -m rl_training.visualize --model models/best/best_model.zip --split heldout --n 6` |
 
 ### Ablation: direct-goal vs waypoint-conditioned policy
 

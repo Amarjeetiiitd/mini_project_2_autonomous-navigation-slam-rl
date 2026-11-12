@@ -1,0 +1,33 @@
+{
+  "selection_metric": "validation_success_rate (tie-break: SPL)",
+  "validation_split": "val",
+  "validation_layout_seeds": [
+    1000,
+    1049
+  ],
+  "validation_episodes": 50,
+  "selected_candidate": "best_model",
+  "selected_model_path": "models/best/best_model.zip",
+  "selected_model_sha256": "b703a6a95325ebd6a2c3ac2f59e0e4129d5c617928344d04893e33501f8ab1d9",
+  "rationale": "Higher validation success rate (76.0% vs 74.0%)",
+  "candidates": {
+    "final_1m_steps": {
+      "model_path": "models/ppo_navigation.zip",
+      "sha256": "0b1437389114ac2c971d2e3d60147d39755cdc12a355d4fbfb4f20d7564124bc",
+      "success_rate": 0.74,
+      "collision_rate": 0.26,
+      "timeout_rate": 0.0,
+      "spl": 0.7355,
+      "episodes": 50
+    },
+    "callback_best_300k": {
+      "model_path": "models/best/best_model.zip",
+      "sha256": "b703a6a95325ebd6a2c3ac2f59e0e4129d5c617928344d04893e33501f8ab1d9",
+      "success_rate": 0.76,
+      "collision_rate": 0.24,
+      "timeout_rate": 0.0,
+      "spl": 0.736,
+      "episodes": 50
+    }
+  }
+}

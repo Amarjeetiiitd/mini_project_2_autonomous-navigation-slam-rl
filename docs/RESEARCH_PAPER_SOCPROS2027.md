@@ -287,7 +287,7 @@ Seed allocations:
 - **Training Set (`train`):** Seeds `0` to `999` (1,000 layouts).
 - **Validation Set (`val`):** Seeds `1000` to `1049` (50 layouts, used for checkpoint selection).
 - **Test Set (`test`):** Seeds `10000` to `10099` (100 layouts across familiar families, $n=25$ each).
-- **Held-Out Set (`heldout`):** Seeds `20000` to `20039` (40 layouts of the held-out `zigzag` family).
+- **Held-Out Set (`heldout`):** Seeds `20000` to `20099` (100 distinct unseen layouts of the held-out `zigzag` family, 1 unique layout per episode, 100 independent trials).
 
 ### 5.2 Controlled Perturbation Models
 - **LiDAR Noise (`lidar_noise`):** Gaussian noise ($\sigma_{\text{lidar}} = 0.03\,\text{m}$) with $5\%$ random beam dropouts imputed as $R_{\max} = 3.5\,\text{m}$.

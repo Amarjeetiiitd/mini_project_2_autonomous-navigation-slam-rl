@@ -323,3 +323,113 @@ def test_t19_omnidirectional_conservative_imminent_collision(filter):
     assert diag["intervention"] == "recovery_pivot"
     assert abs(w_safe) > 0.0
 
+
+# T20-T24: Rigorous recovery pivot clearance threshold tests
+def test_t20_pivot_both_sides_obstructed():
+    """Both flanks heavily obstructed (below robot_radius + margin) -> must safe_stop."""
+    cfg = SafetyConfig()
+    f = NavigationSafetyFilter(cfg)
+    sectors = make_clean_sectors(3.0)
+    sectors[12] = 0.23  # Imminent front collision
+    sectors[[22, 23, 0, 1, 2]] = 0.20  # Rear obstructed
+    sectors[14:18] = 0.20  # Left flank obstructed (< 0.26m)
+    sectors[6:10] = 0.20   # Right flank obstructed (< 0.26m)
+
+    v, w, diag = f.filter_command(0.15, 0.0, sectors, estimated_pose=(1.0, 1.0))
+    assert v == 0.0
+    assert w == 0.0
+    assert diag["intervention"] == "safe_stop"
+
+
+def test_t21_pivot_one_side_obstructed():
+    """One flank obstructed below required threshold -> min clearance is unsafe -> safe_stop."""
+    cfg = SafetyConfig()
+    f = NavigationSafetyFilter(cfg)
+    sectors = make_clean_sectors(3.0)
+    sectors[12] = 0.23  # Imminent front collision
+    sectors[[22, 23, 0, 1, 2]] = 0.20  # Rear obstructed
+    sectors[14:18] = 0.20  # Left flank obstructed (< 0.26m)
+    sectors[6:10] = 1.50   # Right flank wide open
+
+    v, w, diag = f.filter_command(0.15, 0.0, sectors, estimated_pose=(1.0, 1.0))
+    assert v == 0.0
+    assert w == 0.0
+    assert diag["intervention"] == "safe_stop"
+
+
+def test_t22_pivot_clearance_just_below_threshold():
+    """Clearance just below required clearance (0.259 m vs 0.260 m) -> safe_stop."""
+    cfg = SafetyConfig(robot_radius=0.22, stop_distance_margin=0.04)
+    req = cfg.robot_radius + cfg.stop_distance_margin  # 0.260 m
+    f = NavigationSafetyFilter(cfg)
+    sectors = make_clean_sectors(3.0)
+    sectors[12] = 0.23  # Front obstacle
+    sectors[[22, 23, 0, 1, 2]] = 0.20  # Rear obstructed
+    sectors[14:18] = req - 0.005  # 0.255 m
+    sectors[6:10] = req - 0.005
+
+    v, w, diag = f.filter_command(0.15, 0.0, sectors, estimated_pose=(1.0, 1.0))
+    assert v == 0.0
+    assert w == 0.0
+    assert diag["intervention"] == "safe_stop"
+
+
+def test_t23_pivot_clearance_exactly_at_threshold():
+    """Clearance exactly at required clearance (0.260 m) -> safe_stop (rot_clearance <= required)."""
+    cfg = SafetyConfig(robot_radius=0.22, stop_distance_margin=0.04)
+    req = cfg.robot_radius + cfg.stop_distance_margin  # 0.260 m
+    f = NavigationSafetyFilter(cfg)
+    sectors = make_clean_sectors(3.0)
+    sectors[12] = 0.23
+    sectors[[22, 23, 0, 1, 2]] = 0.20
+    sectors[14:18] = req
+    sectors[6:10] = req
+
+    v, w, diag = f.filter_command(0.15, 0.0, sectors, estimated_pose=(1.0, 1.0))
+    assert v == 0.0
+    assert w == 0.0
+    assert diag["intervention"] == "safe_stop"
+
+
+def test_t24_pivot_clearance_comfortably_above_threshold():
+    """Clearance comfortably above required clearance (0.50 m > 0.26 m) -> commands recovery_pivot."""
+    cfg = SafetyConfig(robot_radius=0.22, stop_distance_margin=0.04)
+    req = cfg.robot_radius + cfg.stop_distance_margin  # 0.260 m
+    f = NavigationSafetyFilter(cfg)
+    sectors = make_clean_sectors(3.0)
+    sectors[12] = 0.23
+    sectors[[22, 23, 0, 1, 2]] = 0.20
+    sectors[14:18] = 0.50
+    sectors[6:10] = 0.50
+
+    v, w, diag = f.filter_command(0.15, 0.0, sectors, estimated_pose=(1.0, 1.0))
+    assert v == 0.0
+    assert abs(w) > 0.0
+    assert diag["intervention"] == "recovery_pivot"
+
+
+def test_t25_safe_stops_event_vs_step_counter():
+    """Verify that safe_stops tracks unique trigger events while safe_stop_steps tracks total duration."""
+    cfg = SafetyConfig(max_recovery_attempts=1, recovery_duration=1)
+    f = NavigationSafetyFilter(cfg)
+    sectors = make_clean_sectors(3.0)
+    sectors[12] = 0.23
+    sectors[[22, 23, 0, 1, 2]] = 0.20
+    sectors[14:18] = 0.15  # Obstructed flank -> safe_stop
+
+    # Step 1: initial recovery trigger fails into safe_stop
+    f.filter_command(0.15, 0.0, sectors, estimated_pose=(1.0, 1.0))
+    assert f.stats["safe_stops"] == 1
+    assert f.stats["safe_stop_steps"] == 1
+
+    # Step 2: remains in safe_stop
+    f.filter_command(0.15, 0.0, sectors, estimated_pose=(1.0, 1.0))
+    assert f.stats["safe_stops"] == 1  # No new event trigger
+    assert f.stats["safe_stop_steps"] == 2  # Step counter increments
+
+    # Step 3: still in safe_stop
+    f.filter_command(0.15, 0.0, sectors, estimated_pose=(1.0, 1.0))
+    assert f.stats["safe_stops"] == 1
+    assert f.stats["safe_stop_steps"] == 3
+
+

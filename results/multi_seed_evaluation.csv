@@ -1,0 +1,13 @@
+training_seed,model_path,split,condition,controller,episodes,success_rate,collision_rate,timeout_rate,spl
+0,models\best\best_model.zip,test,nominal,ppo_waypoint,100,0.73,0.27,0.0,0.7014133125673461
+0,models\best\best_model.zip,test,nominal,mas_rl,100,0.8,0.01,0.19,0.7704175222881741
+0,models\best\best_model.zip,test,lidar_noise,ppo_waypoint,100,0.73,0.27,0.0,0.7014174854369412
+0,models\best\best_model.zip,test,lidar_noise,mas_rl,100,0.87,0.0,0.13,0.8331616155364827
+0,models\best\best_model.zip,test,loc_drift,ppo_waypoint,100,0.76,0.24,0.0,0.7313950143182231
+0,models\best\best_model.zip,test,loc_drift,mas_rl,100,0.8,0.03,0.17,0.7694578208616926
+0,models\best\best_model.zip,heldout,nominal,ppo_waypoint,100,0.56,0.44,0.0,0.5441523081657119
+0,models\best\best_model.zip,heldout,nominal,mas_rl,100,0.62,0.0,0.38,0.6008764956115187
+0,models\best\best_model.zip,heldout,lidar_noise,ppo_waypoint,100,0.56,0.44,0.0,0.5441842888602048
+0,models\best\best_model.zip,heldout,lidar_noise,mas_rl,100,0.81,0.03,0.16,0.7762081091157654
+0,models\best\best_model.zip,heldout,loc_drift,ppo_waypoint,100,0.56,0.44,0.0,0.5445186451584136
+0,models\best\best_model.zip,heldout,loc_drift,mas_rl,100,0.64,0.0,0.36,0.6211027857180821
