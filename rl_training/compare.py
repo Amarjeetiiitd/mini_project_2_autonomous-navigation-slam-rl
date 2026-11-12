@@ -94,9 +94,9 @@ def build_experiment_fingerprint(
     for split, scns in scenarios_by_split.items():
         # Canonical hash of every scenario: id, layout seed, family, start pose, goal pos
         manifest_entries = [
-            f"{s.sid}:{s.layout_seed}:{s.family}:"
-            f"{s.start_pose[0]:.4f},{s.start_pose[1]:.4f},{s.start_pose[2]:.4f}:"
-            f"{s.goal_pos[0]:.4f},{s.goal_pos[1]:.4f}"
+            f"{s.sid}:{s.layout_seed}:{s.family_override or 'procedural'}:"
+            f"{s.start[0]:.4f},{s.start[1]:.4f},{s.start[2]:.4f}:"
+            f"{s.goal[0]:.4f},{s.goal[1]:.4f}"
             for s in scns
         ]
         manifest_str = "|".join(manifest_entries)
