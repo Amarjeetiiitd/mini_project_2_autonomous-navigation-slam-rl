@@ -82,7 +82,7 @@ class PolicyNode(Node):
         self.replan_period = P("replan_period", 2.0).value
         self.dry_run = P("dry_run", False).value
         self.enable_safety_shield = P("enable_safety_shield", True).value
-        self.safety_filter = NavigationSafetyFilter()
+        self.safety_filter = NavigationSafetyFilter(SafetyConfig(enable_angular_slew_rate=True))
 
         from stable_baselines3 import PPO
         mp = Path(self.model_path)

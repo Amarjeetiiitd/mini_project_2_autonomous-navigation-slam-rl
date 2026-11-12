@@ -10,10 +10,10 @@
 ---
 
 ### Authors
-**Amarjeet Kumar**, **Research Collaborator**, and **Faculty Advisor**  
+**Amarjeet Raj**, **Research Collaborator**, and **Faculty Advisor**  
 Department of Computer Science & Engineering / Robotics and Automation  
-Indraprastha Institute of Information Technology Delhi (IIIT Delhi), New Delhi, India  
-*Email:* `amarjeet21021@iiitd.ac.in`
+Indian Institute of Information Technology Dharwad (IIIT Dharwad), Dharwad, Karnataka, India  
+*Email:* `amarjeet.raj@iiitdwd.ac.in`
 
 ---
 

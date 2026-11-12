@@ -1,0 +1,43 @@
+{
+  "metadata": {
+    "timestamp": "2026-11-12 11:43:25Z",
+    "platform": "Windows-11-10.0.26300-SP0",
+    "processor": "AMD64 Family 25 Model 116 Stepping 1, AuthenticAMD",
+    "python_version": "3.13.5",
+    "torch_version": "2.15.0+cpu",
+    "torch_threads": 8,
+    "n_warmup": 100,
+    "n_eval": 1000,
+    "device": "cpu"
+  },
+  "ppo_forward_pass": {
+    "mean_ms": 0.358,
+    "std_ms": 0.141,
+    "median_ms": 0.321,
+    "p90_ms": 0.482,
+    "p95_ms": 0.556,
+    "p99_ms": 0.905,
+    "min_ms": 0.172,
+    "max_ms": 1.578
+  },
+  "safety_filter_pass": {
+    "mean_ms": 0.021,
+    "std_ms": 0.016,
+    "median_ms": 0.022,
+    "p90_ms": 0.029,
+    "p95_ms": 0.032,
+    "p99_ms": 0.059,
+    "min_ms": 0.011,
+    "max_ms": 0.415
+  },
+  "end_to_end_mas_rl": {
+    "mean_ms": 0.445,
+    "std_ms": 0.179,
+    "median_ms": 0.394,
+    "p90_ms": 0.604,
+    "p95_ms": 0.694,
+    "p99_ms": 1.241,
+    "min_ms": 0.227,
+    "max_ms": 1.99
+  }
+}

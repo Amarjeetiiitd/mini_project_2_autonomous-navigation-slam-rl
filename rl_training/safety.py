@@ -37,6 +37,7 @@ class SafetyConfig:
     max_recovery_attempts: int = 4                # maximum repeated recovery cycles before timeout
     min_sensor_coverage: float = 0.50             # fraction of finite sectors required to avoid sensor loss stop
     forward_coverage_min: float = 0.50            # fraction of forward sectors (8..16) required for forward drive
+    enable_angular_slew_rate: bool = False        # optional slew-rate limiter enforcing |delta_w| <= max_angular_accel * dt
     enable_governor: bool = True                  # Layer 2: Stopping-distance braking ceiling
     enable_centering: bool = True                 # Layer 3: Lateral repulsion & doorway centering
     enable_recovery: bool = True                  # Layer 4: Stagnation watchdog & reverse recovery
@@ -54,6 +55,7 @@ class NavigationSafetyFilter:
         self.history: list[tuple[float, float]] = []
         self.last_intervention = "none"
         self.recovery_failed_latched = False
+        self.last_w: float = 0.0
         self.stats = {
             "governor_brakes": 0,
             "centering_interventions": 0,
@@ -63,6 +65,8 @@ class NavigationSafetyFilter:
             "deadlock_spins": 0,
             "sensor_loss_stops": 0,
             "safe_stops": 0,
+            "sensor_loss_stop_steps": 0,
+            "safe_stop_steps": 0,
             "total_steps": 0,
         }
 
@@ -75,6 +79,7 @@ class NavigationSafetyFilter:
         self.history.clear()
         self.last_intervention = "none"
         self.recovery_failed_latched = False
+        self.last_w = 0.0
         self.reset_stats()
 
     def reset_stats(self) -> None:
@@ -142,7 +147,9 @@ class NavigationSafetyFilter:
             }
             self.last_intervention = "sensor_loss_stop"
             self.stats["sensor_loss_stops"] += 1
+            self.stats["sensor_loss_stop_steps"] += 1
             self.stats["total_steps"] += 1
+            self.last_w = 0.0
             return 0.0, 0.0, diag
         elif raw_v > 0 and forward_coverage < self.cfg.forward_coverage_min:
             diag = {
@@ -165,7 +172,9 @@ class NavigationSafetyFilter:
             }
             self.last_intervention = "forward_sensor_loss_stop"
             self.stats["sensor_loss_stops"] += 1
+            self.stats["sensor_loss_stop_steps"] += 1
             self.stats["total_steps"] += 1
+            self.last_w = 0.0
             return 0.0, 0.0, diag
 
         # Latched safe stop check: once recovery budget is permanently exhausted,
@@ -191,7 +200,9 @@ class NavigationSafetyFilter:
             }
             self.last_intervention = "safe_stop"
             self.stats["safe_stops"] += 1
+            self.stats["safe_stop_steps"] += 1
             self.stats["total_steps"] += 1
+            self.last_w = 0.0
             return 0.0, 0.0, diag
 
         # Conservative handling for any remaining non-finite sectors:
@@ -278,7 +289,9 @@ class NavigationSafetyFilter:
                     diag["w_safe"] = safe_w
                     self.last_intervention = "safe_stop"
                     self.stats["safe_stops"] += 1
+                    self.stats["safe_stop_steps"] += 1
                     self.stats["total_steps"] += 1
+                    self.last_w = 0.0
                     return safe_v, safe_w, diag
 
                 self.recovery_steps = self.cfg.recovery_duration
@@ -325,6 +338,8 @@ class NavigationSafetyFilter:
                     self.stats["recovery_pivots"] += 1
                 else:
                     self.stats["safe_stops"] += 1
+                    self.stats["safe_stop_steps"] += 1
+                self.last_w = safe_w
                 return safe_v, safe_w, diag
 
         # -------------------------------------------------------------
@@ -391,6 +406,11 @@ class NavigationSafetyFilter:
                 w = 0.85 * preferred_dir
                 if diag["intervention"] == "none":
                     diag["intervention"] = "deadlock_spin"
+
+        if self.cfg.enable_angular_slew_rate:
+            max_dw = self.cfg.max_angular_accel * dt
+            w = float(np.clip(w, self.last_w - max_dw, self.last_w + max_dw))
+        self.last_w = w
 
         diag["v_safe"] = v
         diag["w_safe"] = w

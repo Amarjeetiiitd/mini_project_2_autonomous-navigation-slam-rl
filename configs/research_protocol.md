@@ -28,10 +28,10 @@ come from SLAM?
 
 | Split | Layout seeds | Use |
 |---|---|---|
-| train | 0-999 | PPO training |
+| train | 0-999 | PPO training (seed 0, 1M steps) |
 | val | 1000-1049 | checkpoint selection (EvalCallback) |
-| test | 10000-10099 | headline results: unseen layouts, seen families |
-| heldout | 20000-20039 | unseen layouts **and** unseen family (`zigzag`) |
+| test | 10000-10099 | headline results: unseen layouts, seen families (100 unique seeds) |
+| heldout | 20000-20099 | unseen layouts **and** unseen family (`zigzag`, 100 unique seeds) |
 
 ## Experiments
 

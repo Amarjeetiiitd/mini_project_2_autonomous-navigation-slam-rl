@@ -7,7 +7,7 @@ All commands run from the project root with the venv active.
 | Goal | Command |
 |---|---|
 | Learning curves | `python -m rl_training.plot_training --log-dir logs/ppo_navigation` |
-| E3 unseen layouts | `python -m rl_training.evaluate --split test --episodes 200` |
+| E3 unseen layouts | `python -m rl_training.evaluate --split test --episodes 100` (evaluates 100 unique layouts; passing `--episodes 200` evaluates 2 trials per layout) |
 | E3 unseen family | `python -m rl_training.evaluate --split heldout --episodes 100` |
 | E4 + E5 + E6a (all controllers x conditions x splits) | `python -m rl_training.compare --model models/ppo_navigation --episodes 100` |
 | E1/E2 per-family | `results/compare_by_family.csv` (written by `compare`) |

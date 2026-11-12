@@ -84,6 +84,7 @@ def build_experiment_fingerprint(
     conditions: list[str],
     controllers: list[str],
     scenarios_by_split: dict,
+    scenario_seed: int = 0,
 ) -> dict:
     git_commit, git_dirty = get_git_info()
     model_hash = get_file_sha256(model_path)
@@ -91,8 +92,15 @@ def build_experiment_fingerprint(
     manifest_hashes = {}
     unique_seeds_by_split = {}
     for split, scns in scenarios_by_split.items():
-        seed_str = ",".join(str(s.layout_seed) for s in scns)
-        manifest_hashes[split] = compute_sha256(seed_str)
+        # Canonical hash of every scenario: id, layout seed, family, start pose, goal pos
+        manifest_entries = [
+            f"{s.sid}:{s.layout_seed}:{s.family}:"
+            f"{s.start_pose[0]:.4f},{s.start_pose[1]:.4f},{s.start_pose[2]:.4f}:"
+            f"{s.goal_pos[0]:.4f},{s.goal_pos[1]:.4f}"
+            for s in scns
+        ]
+        manifest_str = "|".join(manifest_entries)
+        manifest_hashes[split] = compute_sha256(manifest_str)
         unique_seeds_by_split[split] = len(set(s.layout_seed for s in scns))
 
     cond_params = {k: C.CONDITIONS[k] for k in sorted(conditions) if k in C.CONDITIONS}
@@ -106,12 +114,14 @@ def build_experiment_fingerprint(
         "n_sectors": int(C.N_SECTORS),
         "range_max": float(C.RANGE_MAX),
     }
-    safety_config = {
-        "reaction_time_s": 0.15,
-        "max_recovery_attempts": 4,
-        "min_sensor_coverage": 0.50,
-        "forward_coverage_min": 0.50,
-    }
+
+    # Dynamically extract all effective SafetyConfig parameters
+    from dataclasses import asdict
+    from .safety import SafetyConfig
+    raw_safety = asdict(SafetyConfig())
+    safety_config = {k: float(v) if isinstance(v, (int, float)) and not isinstance(v, bool) else v
+                     for k, v in sorted(raw_safety.items())}
+
     dependencies = {
         "python": sys.version.split()[0],
         "numpy": np.__version__,
@@ -123,6 +133,9 @@ def build_experiment_fingerprint(
     }
 
     canonical_repr = {
+        "git_commit": git_commit,
+        "git_dirty": git_dirty,
+        "scenario_seed": scenario_seed,
         "model_sha256": model_hash,
         "episodes": episodes,
         "splits": sorted(splits),
@@ -136,10 +149,11 @@ def build_experiment_fingerprint(
     config_hash = compute_sha256(canonical_json)
 
     return {
-        "fingerprint_version": "2.0",
+        "fingerprint_version": "2.1",
         "config_hash": config_hash,
         "git_commit": git_commit,
         "git_dirty": git_dirty,
+        "scenario_seed": scenario_seed,
         "timestamp_utc": datetime.now(timezone.utc).isoformat(),
         "model_path": str(model_path) if model_path else None,
         "model_sha256": model_hash,
@@ -211,7 +225,7 @@ def main() -> None:
 
     # Build experiment configuration fingerprint
     current_fingerprint = build_experiment_fingerprint(
-        a.model, a.episodes, a.splits, a.conditions, [c[0] for c in controllers], scenarios_by_split
+        a.model, a.episodes, a.splits, a.conditions, [c[0] for c in controllers], scenarios_by_split, scenario_seed=a.seed
     )
 
     existing_df = None
