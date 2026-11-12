@@ -48,6 +48,7 @@ from tf2_ros import Buffer, TransformException, TransformListener  # noqa: E402
 from rl_training import config as C  # noqa: E402
 from rl_training.obs import (action_to_cmd, build_observation, goal_in_robot_frame,  # noqa: E402
                              lookahead_point, resample_scan)
+from rl_training.safety import NavigationSafetyFilter, SafetyConfig  # noqa: E402
 
 
 def yaw_from_quat(q) -> float:
@@ -80,9 +81,7 @@ class PolicyNode(Node):
         self.replan_period = P("replan_period", 2.0).value
         self.dry_run = P("dry_run", False).value
         self.enable_safety_shield = P("enable_safety_shield", True).value
-        self.recovery_mode = False
-        self.recovery_steps = 0
-        self.recovery_dir = 1.0
+        self.safety_filter = NavigationSafetyFilter()
 
         from stable_baselines3 import PPO
         mp = Path(self.model_path)
@@ -235,45 +234,18 @@ class PolicyNode(Node):
         v, w = action_to_cmd(action)
         v, w = min(v, self.max_linear), float(np.clip(w, -self.max_angular, self.max_angular))
 
-        # ---- safety: multi-sector predictive governor, repulsive deflection & recovery
+        # ---- safety: unified predictive stopping-distance governor, repulsive deflection & recovery
         if self.enable_safety_shield:
-            if self.recovery_mode:
-                self.recovery_steps -= 1
-                v = -0.08  # reverse
-                w = 0.6 * self.recovery_dir
-                if self.recovery_steps <= 0:
-                    self.recovery_mode = False
-            else:
-                front_sectors = self.scan_sectors[8:17]  # -60° to +60°
-                min_front = float(front_sectors.min())
-                min_all = float(self.scan_sectors.min())
-
-                # Emergency recovery check
-                if min_all < C.ROBOT_RADIUS + 0.05:
-                    self.recovery_mode = True
-                    self.recovery_steps = 6
-                    closest_idx = int(np.argmin(self.scan_sectors))
-                    self.recovery_dir = -1.0 if closest_idx >= 12 else 1.0
-                    v = -0.08
-                    w = 0.6 * self.recovery_dir
-                else:
-                    # Physical stopping distance governor: v^2 <= 2 * a * clearance
-                    clearance = max(0.0, min_front - C.ROBOT_RADIUS - 0.08)
-                    v_allowable = math.sqrt(2.0 * C.A_V_MAX * clearance)
-                    v = min(v, v_allowable)
-
-                    if min_front < C.ROBOT_RADIUS + 0.10:
-                        v = 0.0
-
-                    # Lateral repulsive potential field steering
-                    left_dist = float(self.scan_sectors[13:17].min())
-                    right_dist = float(self.scan_sectors[8:12].min())
-                    repulse_w = 0.0
-                    if left_dist < 0.45:
-                        repulse_w -= 0.6 * (1.0 - left_dist / 0.45)
-                    if right_dist < 0.45:
-                        repulse_w += 0.6 * (1.0 - right_dist / 0.45)
-                    w = float(np.clip(w + repulse_w, -self.max_angular, self.max_angular))
+            v, w, diag = self.safety_filter.filter_command(
+                v, w, self.scan_sectors, estimated_pose=pose[:2], dt=1.0 / self.rate_hz
+            )
+            if diag["intervention"] != "none":
+                self.get_logger().info(
+                    f"Safety shield intervention: {diag['intervention']} "
+                    f"(min_front={diag['min_front']:.2f}m, min_rear={diag['min_rear']:.2f}m, "
+                    f"v: {diag['v_raw']:.2f}->{diag['v_safe']:.2f}, w: {diag['w_raw']:.2f}->{diag['w_safe']:.2f})",
+                    throttle_duration_sec=1.0,
+                )
         else:
             front = float(self.scan_sectors[11:14].min())
             if front < self.stop_distance:

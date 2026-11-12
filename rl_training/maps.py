@@ -120,6 +120,14 @@ def collides(x: float, y: float, rects: np.ndarray, radius: float = C.ROBOT_RADI
     return bool(np.any(ddx * ddx + ddy * ddy < radius * radius))
 
 
+def is_inside_obstacle(x: float, y: float, rects: np.ndarray, margin: float = 0.005) -> bool:
+    """True if point (x, y) lies strictly inside or within margin of any rectangle."""
+    if len(rects) == 0:
+        return False
+    return bool(np.any((rects[:, 0] - margin <= x) & (x <= rects[:, 2] + margin) &
+                       (rects[:, 1] - margin <= y) & (y <= rects[:, 3] + margin)))
+
+
 def rect_clearance(x: float, y: float, rects: np.ndarray) -> float:
     """Distance (m) from point (x, y) to the nearest rectangle edge."""
     if len(rects) == 0:

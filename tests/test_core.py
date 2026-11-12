@@ -191,3 +191,60 @@ def test_string_pulling_shortcut_path():
     assert pruned[0] == (0.0, 0.0)
     assert pruned[-1] == (2.0, 2.0)
 
+
+def test_navigation_safety_filter_governor_and_recovery():
+    from rl_training.safety import NavigationSafetyFilter, SafetyConfig
+    
+    # 1. Stopping distance governor test
+    sf = NavigationSafetyFilter()
+    sectors = np.full(C.N_SECTORS, 3.0)
+    # Put obstacle 0.28 m ahead: clearance = 0.28 - 0.22 - 0.04 = 0.02m -> v_allowable = sqrt(2*1*0.02) = 0.20 m/s
+    sectors[12] = 0.28
+    sectors[11] = 0.28
+    sectors[13] = 0.28
+    
+    # Raw command asks for full speed (0.26 m/s)
+    v_safe, w_safe, diag = sf.filter_command(0.26, 0.0, sectors)
+    assert v_safe < 0.26, "Governor must reduce velocity when obstacle is close ahead"
+    assert diag["intervention"] == "governor_brake"
+    
+    # 2. Doorway centering test
+    sf.reset()
+    sectors_door = np.full(C.N_SECTORS, 3.0)
+    # Left flank is 0.30 m, right flank is 0.50 m (robot is off-center to the left)
+    sectors_door[14:18] = 0.30
+    sectors_door[6:10] = 0.50
+    v_safe, w_safe, diag = sf.filter_command(0.20, 0.0, sectors_door)
+    # Centering bias should turn robot to the right (negative w) to center between walls
+    assert w_safe < 0.0 or diag["intervention"] in ("centering", "flank_repulse")
+    
+    # 3. Rear-clearance recovery test: rear is blocked -> in-place pivot, not reverse
+    sf.reset()
+    sectors_rear_blocked = np.full(C.N_SECTORS, 3.0)
+    sectors_rear_blocked[12] = 0.24  # front imminent obstacle
+    sectors_rear_blocked[0] = 0.23   # rear obstacle (< ROBOT_RADIUS + 0.06 = 0.28)
+    v_safe, w_safe, diag = sf.filter_command(0.20, 0.0, sectors_rear_blocked)
+    # When rear is blocked, robot must NOT reverse
+    assert v_safe >= 0.0, "Must not command reverse when rear LiDAR is obstructed"
+    assert diag["intervention"] == "recovery_pivot"
+
+
+def test_is_inside_obstacle_and_standoff():
+    from rl_training.maps import is_inside_obstacle, rect_clearance
+    
+    rects = np.array([[1.0, 1.0, 3.0, 3.0]])
+    # Inside obstacle
+    assert is_inside_obstacle(2.0, 2.0, rects)
+    # Outside obstacle
+    assert not is_inside_obstacle(0.5, 0.5, rects)
+    
+    # Target near boundary: clearance 0.05 m
+    clr = rect_clearance(0.95, 2.0, rects)
+    assert clr == pytest.approx(0.05, abs=1e-3)
+    # Verify adaptive standoff tolerance formula:
+    target_clr = clr
+    effective_tol = max(C.GOAL_TOLERANCE, (C.ROBOT_RADIUS + 0.04 - target_clr) + 0.08)
+    # Should give >= 0.25 m to allow robot to complete without colliding
+    assert effective_tol > C.GOAL_TOLERANCE
+
+

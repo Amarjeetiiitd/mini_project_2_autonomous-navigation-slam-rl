@@ -42,7 +42,7 @@ from . import config as C
 from .baselines import (DWAController, GovernorPPOController, PPOController,
                         ReactiveController, ShieldedPPOController)
 from .evaluate import load_policy
-from .maps import get_bundle, collides, rect_clearance, generate_world, make_plan_blocked
+from .maps import get_bundle, collides, rect_clearance, generate_world, make_plan_blocked, is_inside_obstacle
 from .nav_env import NavEnv
 from .obs import cmd_to_action, action_to_cmd, goal_in_robot_frame, build_observation
 from .planning import (
@@ -82,12 +82,8 @@ class AutonomousNavApp:
         self.stuck_frames = 0
         self.is_target_unreachable = False
 
-        # Dynamic Impasse & Alternative Path Discovery Layer
-        self.dynamic_impasses = []  # list of {"x": float, "y": float, "radius": float, "timestamp": float}
         self.boundary_hold_count = 0
         self.last_boundary_hold_pos = None
-        self.reroute_count = 0
-        self.last_reroute_step = -100
 
         # Mission Waypoints Queue
         self.waypoint_queue = []  # list of (x, y) tuples
@@ -193,11 +189,8 @@ class AutonomousNavApp:
         self.geodesic_field_map = None
         self.field_sampler = None
         self.shortest_geo_len = 0.0
-        self.dynamic_impasses.clear()
         self.boundary_hold_count = 0
         self.last_boundary_hold_pos = None
-        self.reroute_count = 0
-        self.last_reroute_step = -100
 
         ny, nx = self.bundle.occ.shape
         self.discovered_grid = np.zeros((ny, nx), dtype=bool)
@@ -242,11 +235,8 @@ class AutonomousNavApp:
         self.current_v = 0.0
         self.current_w = 0.0
         self.is_running = False
-        self.dynamic_impasses.clear()
         self.boundary_hold_count = 0
         self.last_boundary_hold_pos = None
-        self.reroute_count = 0
-        self.last_reroute_step = -100
         self.btn_run.config(text="▶ START MISSION", bg="#059669")
         if len(self.trajectory_history) > 0:
             start_pos = self.trajectory_history[0]
@@ -722,33 +712,20 @@ class AutonomousNavApp:
             self.teleport_robot(x, y)
 
     def snap_box_coordinates(self, x0: float, y0: float, x1: float, y1: float) -> tuple[float, float, float, float]:
-        """Align obstacle box edges flush to nearby map boundaries and interior walls if within 0.15 m."""
+        """Align obstacle box edges flush to perimeter walls only if drawn within 2 cm."""
         w_max, h_max = self.world.width, self.world.height
         bx0, bx1 = min(x0, x1), max(x0, x1)
         by0, by1 = min(y0, y1), max(y0, y1)
 
-        # Snap to outer walls (wall thickness t = 0.10 m)
-        if bx0 < 0.25:
+        # Snap flush to perimeter wall only if drawn within 2 cm
+        if abs(bx0 - 0.10) < 0.02:
             bx0 = 0.10
-        if by0 < 0.25:
+        if abs(by0 - 0.10) < 0.02:
             by0 = 0.10
-        if bx1 > w_max - 0.25:
+        if abs(bx1 - (w_max - 0.10)) < 0.02:
             bx1 = w_max - 0.10
-        if by1 > h_max - 0.25:
+        if abs(by1 - (h_max - 0.10)) < 0.02:
             by1 = h_max - 0.10
-
-        # Magnetic snap to existing wall edges
-        for rx0, ry0, rx1, ry1 in self.rects:
-            for edge in (rx0, rx1):
-                if abs(bx0 - edge) < 0.12:
-                    bx0 = edge
-                if abs(bx1 - edge) < 0.12:
-                    bx1 = edge
-            for edge in (ry0, ry1):
-                if abs(by0 - edge) < 0.12:
-                    by0 = edge
-                if abs(by1 - edge) < 0.12:
-                    by1 = edge
 
         bx0 = float(np.clip(bx0, 0.10, w_max - 0.10))
         bx1 = float(np.clip(bx1, 0.10, w_max - 0.10))
@@ -794,38 +771,19 @@ class AutonomousNavApp:
             self.redraw_canvas()
 
     def set_single_goal(self, x: float, y: float):
-        tx, ty = self.snap_to_free_space(x, y)
-        if tx is None:
-            self.update_status("Clicked inside an impassable obstacle! Please click on free floor space.", "#ef4444")
-            return
-
-        self.dynamic_impasses.clear()
-        self.boundary_hold_count = 0
-        self.last_boundary_hold_pos = None
-        self.reroute_count = 0
-        self.last_reroute_step = -100
         self.waypoint_queue.clear()
         self.completed_waypoints.clear()
-        self.active_target = (tx, ty)
-        self.plan_path_to_target(tx, ty)
-
-        self.update_status(f"Target destination locked at ({tx:.2f} m, {ty:.2f} m). Navigating now!", "#34d399")
-        self.is_running = True
-        self.btn_run.config(text="⏸  PAUSE MISSION", bg="#d97706")
+        self.boundary_hold_count = 0
+        self.last_boundary_hold_pos = None
+        self.active_target = (x, y)
+        self.plan_path_to_target(x, y)
         self.redraw_canvas()
 
     def add_waypoint_to_queue(self, x: float, y: float):
-        tx, ty = self.snap_to_free_space(x, y)
-        if tx is None:
-            self.update_status("Waypoint inside obstacle! Please click on free floor space.", "#ef4444")
-            return
-
-        self.waypoint_queue.append((tx, ty))
-
+        self.waypoint_queue.append((x, y))
         if self.active_target is None:
             self.pop_next_waypoint()
-
-        self.update_status(f"Waypoint #{len(self.waypoint_queue) + len(self.completed_waypoints)} queued at ({tx:.2f}, {ty:.2f})", "#34d399")
+        self.update_status(f"Waypoint #{len(self.waypoint_queue) + len(self.completed_waypoints)} queued at ({x:.2f}, {y:.2f})", "#34d399")
         self.redraw_canvas()
 
     def pop_next_waypoint(self):
@@ -863,29 +821,9 @@ class AutonomousNavApp:
         self.update_status(f"Robot relocated to ({x:.2f} m, {y:.2f} m)", "#c084fc")
         self.redraw_canvas()
 
-    def snap_to_free_space(self, x: float, y: float, search_radius: float = 0.8) -> tuple[float, float] | None:
-        # Check if clicked point is in free floor space (not inside a solid wall)
-        # Using a small margin (0.04 m) ensures that clicking right near a boundary or doorway
-        # preserves the user's EXACT intended position without displacing it away!
-        clr = rect_clearance(x, y, self.rects_arr)
-        if clr >= 0.04:
-            return x, y
-
-        # If clicked strictly inside an obstacle wall, project smoothly outward
-        # to the closest valid point just outside the obstacle surface
-        best_pt, best_dist = None, 1e9
-        for r in np.linspace(0.04, search_radius, 24):
-            for ang in np.linspace(0, 2 * math.pi, 32, endpoint=False):
-                cand_x = x + r * math.cos(ang)
-                cand_y = y + r * math.sin(ang)
-                if rect_clearance(cand_x, cand_y, self.rects_arr) >= 0.05:
-                    d = (cand_x - x)**2 + (cand_y - y)**2
-                    if d < best_dist:
-                        best_dist = d
-                        best_pt = (cand_x, cand_y)
-            if best_pt is not None:
-                break
-        return best_pt if best_pt is not None else (x, y)
+    def snap_to_free_space(self, x: float, y: float, search_radius: float = 0.8) -> tuple[float, float]:
+        # User retains exact millimeter coordinate for true precision placement
+        return x, y
 
     def plan_path_to_target(self, gx: float, gy: float):
         self.env.goal = np.array([gx, gy], dtype=np.float64)
@@ -895,112 +833,88 @@ class AutonomousNavApp:
         # Dynamic inflated occupancy grid including both world architecture and custom obstacles
         blocked_grid = make_plan_blocked(self.world.width, self.world.height, self.rects_arr)
 
-        # Apply active dynamic impasse costs (soft penalty, avoids permanently severing doorways)
+        # Check if target is strictly inside a solid wall or obstacle block
+        target_inside_obstacle = is_inside_obstacle(gx, gy, self.rects_arr)
+
         ny, nx = occ_shape
         clearance_cost = make_clearance_penalty(blocked_grid)
-        for imp in self.dynamic_impasses:
-            ix, iy, ir = imp["x"], imp["y"], imp["radius"]
-            irc = xy_to_rc(ix, iy, occ_shape)
-            r_cells = max(1, int(round(ir / C.GRID_RES)))
-            for dr in range(-r_cells, r_cells + 1):
-                for dc in range(-r_cells, r_cells + 1):
-                    if dr * dr + dc * dc <= r_cells * r_cells:
-                        rr, cc = irc[0] + dr, irc[1] + dc
-                        if 0 <= rr < ny and 0 <= cc < nx:
-                            # Protect immediate target vicinity
-                            if abs(rr - target_rc[0]) > 2 or abs(cc - target_rc[1]) > 2:
-                                clearance_cost[rr, cc] += 2.5
 
-        # Ensure target coordinate cell itself is not masked by inflation
+        # Only unmask inflation margin around target if target is NOT inside a solid wall!
         tr, tc = target_rc
-        if 0 <= tr < occ_shape[0] and 0 <= tc < occ_shape[1]:
-            blocked_grid[max(0, tr - 2):min(occ_shape[0], tr + 3), max(0, tc - 2):min(occ_shape[1], tc + 3)] = False
+        if not target_inside_obstacle and 0 <= tr < occ_shape[0] and 0 <= tc < occ_shape[1]:
+            for dr in range(-3, 4):
+                for dc in range(-3, 4):
+                    rr, cc = tr + dr, tc + dc
+                    if 0 <= rr < ny and 0 <= cc < nx:
+                        cx, cy = rc_to_xy(rr, cc)
+                        if not is_inside_obstacle(cx, cy, self.rects_arr):
+                            blocked_grid[rr, cc] = False
 
-        self.geodesic_field_map = geodesic_field(blocked_grid, target_rc, clearance_cost=clearance_cost)
-        self.field_sampler = smooth_sampler(self.geodesic_field_map)
-        self.env.field = self.geodesic_field_map
-        self.env._geo = self.field_sampler
+        if target_inside_obstacle:
+            self.geodesic_field_map = np.full(occ_shape, np.inf)
+            self.shortest_geo_len = math.inf
+        else:
+            self.geodesic_field_map = geodesic_field(blocked_grid, target_rc, clearance_cost=clearance_cost)
+            self.field_sampler = smooth_sampler(self.geodesic_field_map)
+            self.env.field = self.geodesic_field_map
+            self.env._geo = self.field_sampler
 
-        rx, ry, _ = self.robot_pose
-        self.shortest_geo_len = float(self.field_sampler(rx, ry))
+            rx, ry, _ = self.robot_pose
+            self.shortest_geo_len = float(self.field_sampler(rx, ry))
+
         self.env.shortest = self.shortest_geo_len
         self.env._prev_geo = self.shortest_geo_len
 
         # Check reachability through obstacle configuration
-        if math.isinf(self.shortest_geo_len) or self.shortest_geo_len > 100.0:
+        if target_inside_obstacle:
             self.is_target_unreachable = True
             self.is_running = False
             self.current_v = 0.0
             self.current_w = 0.0
             self.btn_run.config(text="▶  START MISSION", bg="#475569")
             self.safety_status_lbl.config(
-                text="🚫 UNREACHABLE: Target is completely sealed by obstacles!",
+                text="🚫 UNREACHABLE DESTINATION: Target is inside a solid obstacle or wall!",
                 fg="#f87171",
                 bg="#7f1d1d",
             )
-            self.update_status("⚠️ INFEASIBLE TARGET: No collision-free path exists! Target is walled off. Robot safely halted.", "#ef4444")
+            self.update_status("⚠️ INFEASIBLE TARGET: Destination is strictly inside an obstacle! Robot safely halted.", "#ef4444")
+        elif math.isinf(self.shortest_geo_len) or self.shortest_geo_len > 100.0:
+            self.is_target_unreachable = True
+            self.is_running = False
+            self.current_v = 0.0
+            self.current_w = 0.0
+            self.btn_run.config(text="▶  START MISSION", bg="#475569")
+            self.safety_status_lbl.config(
+                text="🚫 UNREACHABLE DESTINATION: Target is completely walled off or sealed!",
+                fg="#f87171",
+                bg="#7f1d1d",
+            )
+            self.update_status("⚠️ INFEASIBLE TARGET: No collision-free route exists to target. Robot safely halted.", "#ef4444")
         else:
             self.is_target_unreachable = False
-
-    def trigger_alternative_path_reroute(self, reason: str = "Pinch point impasse detected") -> bool:
-        if self.active_target is None:
-            return False
-        # Cooldown check: do not spam reroutes within 20 steps
-        if self.step_count - self.last_reroute_step < 20:
-            return False
-
-        rx, ry, rth = self.robot_pose
-        gx, gy = self.active_target
-
-        ahead_x = rx + 0.18 * math.cos(rth)
-        ahead_y = ry + 0.18 * math.sin(rth)
-
-        # Duplicate check: don't place another impasse if one already exists near here
-        if any(math.hypot(ahead_x - old["x"], ahead_y - old["y"]) < 0.40 for old in self.dynamic_impasses):
-            return False
-
-        if len(self.dynamic_impasses) >= 6:
-            self.dynamic_impasses.pop(0)
-
-        imp_entry = {
-            "x": ahead_x,
-            "y": ahead_y,
-            "radius": 0.22,
-            "timestamp": time.time(),
-            "step": self.step_count,
-            "reason": reason,
-        }
-        self.dynamic_impasses.append(imp_entry)
-        self.reroute_count += 1
-        self.last_reroute_step = self.step_count
-
-        self.plan_path_to_target(gx, gy)
-
-        # Verify alternative path reachability
-        if not math.isinf(self.shortest_geo_len) and self.shortest_geo_len < 100.0:
-            self.update_status("🔄 ALTERNATIVE ROUTE DISCOVERED: Bypassing impasse via open corridor!", "#34d399")
-            self.recovery_mode = True
-            self.recovery_steps = 14
-            self.stuck_frames = 0
-            self.stagnation_history.clear()
-            self.boundary_hold_count = 0
-            return True
-        else:
-            # Impasse blocked the only existing path to goal
-            if imp_entry in self.dynamic_impasses:
-                self.dynamic_impasses.remove(imp_entry)
-            self.plan_path_to_target(gx, gy)
-            self.update_status("⚠️ NO ALTERNATIVE PATH: Single passage only, attempting disengagement...", "#fbbf24")
-            return False
+            target_clr = rect_clearance(gx, gy, self.rects_arr)
+            if target_clr < (C.ROBOT_RADIUS + 0.05):
+                self.safety_status_lbl.config(
+                    text=f"ℹ️ NEAR-BOUNDARY TARGET: Clearance is {target_clr:.2f} m (< robot footprint {C.ROBOT_RADIUS} m). Safe standoff navigation active.",
+                    fg="#38bdf8",
+                    bg="#0c4a6e",
+                )
+                self.update_status(f"Near-boundary target locked at ({gx:.2f}, {gy:.2f}). Navigating to safe standoff margin...", "#38bdf8")
+            else:
+                self.safety_status_lbl.config(
+                    text=f"🟢 TARGET LOCKED: Distance {self.shortest_geo_len:.2f} m. Path clear.",
+                    fg="#34d399",
+                    bg="#064e3b",
+                )
+                self.update_status(f"Target destination locked at ({gx:.2f} m, {gy:.2f} m). Navigating now!", "#34d399")
+            self.is_running = True
+            self.btn_run.config(text="⏸  PAUSE MISSION", bg="#d97706")
 
     def clear_all_waypoints(self):
         self.waypoint_queue.clear()
         self.completed_waypoints.clear()
-        self.dynamic_impasses.clear()
         self.boundary_hold_count = 0
         self.last_boundary_hold_pos = None
-        self.reroute_count = 0
-        self.last_reroute_step = -100
         self.active_target = None
         self.is_running = False
         self.btn_run.config(text="▶  START MISSION", bg="#059669")
@@ -1009,11 +923,8 @@ class AutonomousNavApp:
 
     def clear_custom_obstacles(self):
         self.custom_obstacles.clear()
-        self.dynamic_impasses.clear()
         self.boundary_hold_count = 0
         self.last_boundary_hold_pos = None
-        self.reroute_count = 0
-        self.last_reroute_step = -100
         self.rects = list(self.world.rects)
         self.rects_arr = np.array(self.rects)
         self.env.rects = self.rects_arr
@@ -1098,13 +1009,24 @@ class AutonomousNavApp:
         dist_to_goal = math.hypot(gx - rx, gy - ry)
         self.target_dist = dist_to_goal
 
-        # 1. Check Goal Tolerance Reached
-        if dist_to_goal < C.GOAL_TOLERANCE:
+        # 1. Check Goal Tolerance Reached (Adaptive Safe Standoff for Near-Boundary Targets)
+        target_clr = rect_clearance(gx, gy, self.rects_arr)
+        effective_tolerance = C.GOAL_TOLERANCE
+        if target_clr < (C.ROBOT_RADIUS + 0.05):
+            effective_tolerance = max(C.GOAL_TOLERANCE, (C.ROBOT_RADIUS + 0.04 - target_clr) + 0.08)
+
+        if dist_to_goal <= effective_tolerance:
             self.completed_waypoints.append(self.active_target)
             self.current_v = 0.0
             self.current_w = 0.0
             has_next = self.pop_next_waypoint()
             if not has_next:
+                self.is_running = False
+                self.btn_run.config(text="▶  START MISSION", bg="#059669")
+                if target_clr < (C.ROBOT_RADIUS + 0.05):
+                    self.update_status(f"🎯 GOAL REACHED: Safely positioned at boundary standoff margin (dist: {dist_to_goal:.2f} m)!", "#34d399")
+                else:
+                    self.update_status(f"🎯 GOAL REACHED: Arrived at destination ({gx:.2f} m, {gy:.2f} m)!", "#34d399")
                 return
 
         # 2. Extract Lookahead Waypoint from Geodesic Field with Line-of-Sight Check
@@ -1158,38 +1080,25 @@ class AutonomousNavApp:
         if dist_to_goal < 0.6:
             v_target = min(v_target, max(0.08, C.V_MAX * (dist_to_goal / 0.6)))
 
-        # Dynamic Impasse Auto-Expiration:
-        # Clear impasses that are older than 100 control steps (10 s) or if the robot is > 2.5 m away.
-        # This prevents temporary doorway pinches from permanently bricking passages!
-        if self.dynamic_impasses and self.active_target is not None:
-            initial_count = len(self.dynamic_impasses)
-            self.dynamic_impasses = [
-                imp for imp in self.dynamic_impasses
-                if (self.step_count - imp.get("step", self.step_count) < 100) and
-                   (math.hypot(rx - imp["x"], ry - imp["y"]) < 2.5)
-            ]
-            if len(self.dynamic_impasses) < initial_count:
-                gx, gy = self.active_target
-                self.plan_path_to_target(gx, gy)
-
         # 6. Anti-Stagnation & Freeze Watchdog Layer
         self.stagnation_history.append((rx, ry))
-        if len(self.stagnation_history) > 15:
+        if len(self.stagnation_history) > 20:
             self.stagnation_history.pop(0)
 
-        if len(self.stagnation_history) == 15 and dist_to_goal > C.GOAL_TOLERANCE and not self.recovery_mode:
+        front_narrow = sector_ranges[10:15]
+        min_front_range = float(front_narrow.min())
+
+        if len(self.stagnation_history) == 20 and dist_to_goal > effective_tolerance and not self.recovery_mode:
             past_x, past_y = self.stagnation_history[0]
             disp = math.hypot(rx - past_x, ry - past_y)
-            if disp < 0.04:  # moved less than 4 cm in 1.5 seconds while mission active!
+            if disp < 0.03 and min_front_range < (C.ROBOT_RADIUS + 0.08):  # stalled facing an obstacle
                 self.stuck_frames += 1
-                if self.stuck_frames >= 4:  # stuck / frozen in local minimum
-                    rerouted = self.trigger_alternative_path_reroute("Robot stalled in pinch point")
-                    if not rerouted:
-                        self.recovery_mode = True
-                        self.recovery_steps = 12
-                        left_dist_val = float(sector_ranges[13:18].mean())
-                        right_dist_val = float(sector_ranges[7:12].mean())
-                        self.recovery_direction = 1.0 if left_dist_val >= right_dist_val else -1.0
+                if self.stuck_frames >= 4:  # confirmed frozen in local deadlock
+                    self.recovery_mode = True
+                    self.recovery_steps = 10
+                    left_dist_val = float(sector_ranges[13:18].mean())
+                    right_dist_val = float(sector_ranges[7:12].mean())
+                    self.recovery_direction = 1.0 if left_dist_val >= right_dist_val else -1.0
                     self.stuck_frames = 0
                     self.stagnation_history.clear()
             else:
@@ -1197,181 +1106,129 @@ class AutonomousNavApp:
 
         # 7. Intelligent Safety Shield & Autonomous Recovery Layer
         if self.safety_shield_enabled.get():
-            # Check rear clearance before allowing negative velocity:
-            # Sector 0 is straight behind (-pi), sectors 22, 23, 1, 2 flank it
             rear_sectors = sector_ranges[[22, 23, 0, 1, 2]]
             min_rear_range = float(rear_sectors.min())
             rear_blocked = min_rear_range < (C.ROBOT_RADIUS + 0.08)
 
-            front_narrow = sector_ranges[10:15]
-            min_front_range = float(front_narrow.min())
             left_flank = float(sector_ranges[14:18].min())
             right_flank = float(sector_ranges[6:10].min())
-            flank_pinched_left = left_flank < (C.ROBOT_RADIUS + 0.035)
-            flank_pinched_right = right_flank < (C.ROBOT_RADIUS + 0.035)
+            front_open = min_front_range > (C.ROBOT_RADIUS + 0.06)
 
             if self.recovery_mode:
                 self.recovery_steps -= 1
-
-                # Angle and distance to lookahead waypoint (from global / alternative path)
                 rel_wpt_dist, rel_wpt_ang = goal_in_robot_frame(self.robot_pose, lookahead_target)
 
-                # Sector clearance along lookahead waypoint direction
-                wpt_sec = int(np.clip(int(round((rel_wpt_ang + math.pi) / (2 * math.pi) * 24)) % 24, 0, 23))
-                wpt_clearance = float(sector_ranges[wpt_sec])
-
-                if flank_pinched_left:
-                    # Disengage pinched left flank by pivoting away from the obstacle
-                    v_target = -0.06 if not rear_blocked else 0.0
-                    w_target = -0.90
-                    self.safety_status_lbl.config(
-                        text=f"🔄 DISENGAGING LEFT FLANK: Turning away ({self.recovery_steps})",
-                        fg="#fbbf24",
-                        bg="#78350f",
-                    )
-                elif flank_pinched_right:
-                    # Disengage pinched right flank by pivoting away from the obstacle
-                    v_target = -0.06 if not rear_blocked else 0.0
-                    w_target = 0.90
-                    self.safety_status_lbl.config(
-                        text=f"🔄 DISENGAGING RIGHT FLANK: Turning away ({self.recovery_steps})",
-                        fg="#fbbf24",
-                        bg="#78350f",
-                    )
-                # If robot is aligned with lookahead target, front is clear, AND flanks are unpinched: DRIVE FORWARD!
-                elif abs(rel_wpt_ang) < math.radians(45) and min_front_range > C.ROBOT_RADIUS + 0.08 and not (flank_pinched_left or flank_pinched_right):
+                if front_open and abs(rel_wpt_ang) < math.radians(40):
+                    # Front is clear and roughly aligned with path: resume forward drive!
                     v_target = 0.12
                     w_target = float(np.clip(rel_wpt_ang * 2.0, -C.W_MAX, C.W_MAX))
-                    self.safety_status_lbl.config(
-                        text=f"🚀 DISENGAGING: Driving toward Open Path ({self.recovery_steps})",
-                        fg="#34d399",
-                        bg="#064e3b",
-                    )
+                    if self.recovery_steps <= 0:
+                        self.recovery_mode = False
+                        self.update_status("Mission resumed on clear path.", "#34d399")
                 elif abs(rel_wpt_ang) >= math.radians(25):
-                    # Turn in place directly toward the open lookahead waypoint
+                    # Turn in place toward the open lookahead waypoint
                     v_target = 0.0
                     turn_dir = 1.0 if rel_wpt_ang > 0 else -1.0
                     w_target = 0.95 * turn_dir
                     self.safety_status_lbl.config(
-                        text=f"🔄 ALIGNING: Turning to Alternative Path ({self.recovery_steps})",
+                        text=f"🔄 ALIGNING: Turning toward path ({self.recovery_steps})",
                         fg="#fbbf24",
                         bg="#78350f",
                     )
-                elif not rear_blocked and min_front_range < C.ROBOT_RADIUS + 0.08:
-                    # Front blocked, rear clear: back away from pinch
-                    v_target = -0.12
+                elif not rear_blocked and min_front_range < C.ROBOT_RADIUS + 0.05:
+                    v_target = -0.10
                     w_target = 0.85 * self.recovery_direction
                     self.safety_status_lbl.config(
-                        text=f"🔄 AUTO-RECOVERY: Backing Away ({self.recovery_steps})",
+                        text=f"🔄 AUTO-RECOVERY: Backing away ({self.recovery_steps})",
                         fg="#fbbf24",
                         bg="#78350f",
                     )
                 else:
-                    # Both front and rear tight: pivot toward max LiDAR clearance sector
                     best_sec = int(np.argmax(sector_ranges))
                     best_ang = -math.pi + (best_sec + 0.5) * (2 * math.pi / 24)
                     turn_dir = 1.0 if best_ang > 0 else -1.0
                     v_target = 0.0
                     w_target = 0.95 * turn_dir
                     self.safety_status_lbl.config(
-                        text=f"🔄 AUTO-RECOVERY: Pivoting to Clear Sector ({self.recovery_steps})",
+                        text=f"🔄 AUTO-RECOVERY: Pivoting ({self.recovery_steps})",
                         fg="#fbbf24",
                         bg="#78350f",
                     )
 
                 if self.recovery_steps <= 0:
-                    if min_front_range < C.ROBOT_RADIUS + 0.08 or flank_pinched_left or flank_pinched_right:
-                        self.recovery_steps = 3
-                    else:
-                        self.recovery_mode = False
-                        self.update_status("Mission resumed on clear path.", "#34d399")
+                    self.recovery_mode = False
             else:
-                front_narrow = sector_ranges[10:15]  # ±30° narrow forward cone
-                front_wide = sector_ranges[8:17]     # ±60° wide forward arc
-                min_front_range = float(front_narrow.min())
-                min_wide_range = float(front_wide.min())
-                min_overall_range = float(sector_ranges.min())
-
-                # Emergency recovery is ONLY triggered if front is blocked, bumper pinched, or flank tightly pressed
-                front_blocked = min_front_range < (C.ROBOT_RADIUS + 0.04)
-                bumper_pinched = min_overall_range < (C.ROBOT_RADIUS + 0.012)
-                flank_tight = min(left_flank, right_flank) < (C.ROBOT_RADIUS + 0.015)
-
-                if (front_blocked and abs(v_target) < 0.04) or bumper_pinched or flank_tight:
-                    self.recovery_mode = True
-                    self.recovery_steps = 8
-                    closest_idx = int(np.argmin(sector_ranges))
-                    self.recovery_direction = -1.0 if closest_idx >= 12 else 1.0
-                    v_target = 0.0 if rear_blocked else -0.10
-                    w_target = 0.90 * self.recovery_direction
+                # Normal shielded driving with active doorway centering & glance-off
+                # 1. Doorway / Constriction Medial Axis Centering
+                repulse_w = 0.0
+                if left_flank < 0.65 and right_flank < 0.65:
+                    centering_w = 1.15 * (left_flank - right_flank)
+                    repulse_w += centering_w
+                    v_target = min(v_target, 0.12)
+                    self.safety_status_lbl.config(text="🚪 DOORWAY CENTERING: Tracking midline", fg="#38bdf8", bg="#0c4a6e")
+                elif left_flank < (C.ROBOT_RADIUS + 0.02) and front_open:
+                    repulse_w -= 0.65
+                    v_target = min(v_target, 0.08)
+                elif right_flank < (C.ROBOT_RADIUS + 0.02) and front_open:
+                    repulse_w += 0.65
+                    v_target = min(v_target, 0.08)
                 else:
-                    clearance = max(0.0, min_wide_range - C.ROBOT_RADIUS - 0.04)
-                    v_allowable = math.sqrt(2.0 * C.A_V_MAX * clearance)
-                    if v_target > v_allowable:
-                        v_target = v_allowable
+                    if left_flank < 0.45:
+                        repulse_w -= 0.7 * (1.0 - left_flank / 0.45)
+                    if right_flank < 0.45:
+                        repulse_w += 0.7 * (1.0 - right_flank / 0.45)
 
-                    if min_front_range < C.ROBOT_RADIUS + 0.06:
-                        v_target = 0.0
+                w_target = float(np.clip(w_target + repulse_w, -C.W_MAX, C.W_MAX))
 
-                    # Restrict forward velocity if flank is tight to avoid dragging against wall
-                    if min(left_flank, right_flank) < (C.ROBOT_RADIUS + 0.035):
-                        v_target = min(v_target, 0.08)
+                # 2. Predictive Stopping Governor (Discrete CBF)
+                front_wide = sector_ranges[8:17]
+                min_wide = float(front_wide.min())
+                clearance = max(0.0, min_wide - C.ROBOT_RADIUS - 0.04)
+                v_allowable = math.sqrt(2.0 * C.A_V_MAX * clearance)
+                v_target = min(v_target, v_allowable)
 
-                    # Lateral Repulsive Potential Field & Doorway Centering
-                    left_dist = float(sector_ranges[13:18].min())
-                    right_dist = float(sector_ranges[7:12].min())
-                    repulse_w = 0.0
+                if min_front_range < C.ROBOT_RADIUS + 0.04:
+                    v_target = 0.0
+                    left_dist_val = float(sector_ranges[13:18].mean())
+                    right_dist_val = float(sector_ranges[7:12].mean())
+                    preferred_dir = 1.0 if left_dist_val >= right_dist_val else -1.0
+                    if abs(w_target) < 0.4:
+                        w_target = 0.85 * preferred_dir
+                    if not rear_blocked:
+                        self.recovery_mode = True
+                        self.recovery_steps = 8
+                        self.recovery_direction = preferred_dir
 
-                    # 1. Doorway & Narrow Corridor Centering Bias
-                    # If obstacles are detected on both left and right flanks, steer toward the center
-                    if left_dist < 0.65 and right_dist < 0.65:
-                        centering_bias = 0.85 * (left_dist - right_dist)
-                        repulse_w += centering_bias
-                    else:
-                        if left_dist < 0.45:
-                            repulse_w -= 0.7 * (1.0 - left_dist / 0.45)
-                        if right_dist < 0.45:
-                            repulse_w += 0.7 * (1.0 - right_dist / 0.45)
+                # 3. Trajectory Collision Forecast
+                test_v = v_target if abs(v_target) > 0.03 else 0.0
+                if test_v != 0.0:
+                    for step_i in [1, 2, 3, 4]:
+                        pred_x = rx + step_i * test_v * math.cos(rth) * C.DT
+                        pred_y = ry + step_i * test_v * math.sin(rth) * C.DT
+                        if collides(pred_x, pred_y, self.rects_arr, radius=C.ROBOT_RADIUS + 0.02):
+                            v_target = 0.0
+                            preferred_dir = 1.0 if left_flank >= right_flank else -1.0
+                            w_target = 0.95 * preferred_dir
+                            break
 
-                    w_target = float(np.clip(w_target + repulse_w, -C.W_MAX, C.W_MAX))
-
-                    # ANTI-DEADLOCK SYMMETRY BREAKING:
-                    # When linear velocity is stopped by an obstacle ahead, actively steer toward open space!
-                    if v_target == 0.0:
-                        preferred_dir = 1.0 if left_dist >= right_dist else -1.0
-                        if abs(w_target) < 0.4:
-                            w_target = 0.85 * preferred_dir
-
-                    # Trajectory Collision Forecast (Checks both forward & reverse)
-                    test_v = v_target if abs(v_target) > 0.03 else 0.0
-                    if test_v != 0.0:
-                        for step_i in [1, 2, 3, 4]:
-                            pred_x = rx + step_i * test_v * math.cos(rth) * C.DT
-                            pred_y = ry + step_i * test_v * math.sin(rth) * C.DT
-                            if collides(pred_x, pred_y, self.rects_arr, radius=C.ROBOT_RADIUS + 0.03):
-                                v_target = 0.0
-                                preferred_dir = 1.0 if left_dist >= right_dist else -1.0
-                                w_target = 0.95 * preferred_dir
-                                break
-
-                    if v_target == 0.0:
-                        self.safety_status_lbl.config(
-                            text=f"🛑 SHIELD TURNING: Avoiding Obstacle ({min_front_range:.2f} m)",
-                            fg="#fbbf24",
-                            bg="#78350f",
-                        )
-                    elif abs(repulse_w) > 0.1:
-                        self.safety_status_lbl.config(
-                            text="🟡 SHIELD DEFLECTION: Repelling Obstacle",
-                            fg="#fbbf24",
-                            bg="#78350f",
-                        )
-                    else:
-                        self.safety_status_lbl.config(
-                            text=f"🟢 SHIELD ACTIVE: Safe Clearance {min_front_range:.2f} m",
-                            fg="#34d399",
-                            bg="#064e3b",
-                        )
+                if v_target == 0.0:
+                    self.safety_status_lbl.config(
+                        text=f"🛑 SHIELD TURNING: Avoiding Obstacle ({min_front_range:.2f} m)",
+                        fg="#fbbf24",
+                        bg="#78350f",
+                    )
+                elif abs(repulse_w) > 0.1:
+                    self.safety_status_lbl.config(
+                        text="🟡 SHIELD DEFLECTION: Repelling Obstacle",
+                        fg="#fbbf24",
+                        bg="#78350f",
+                    )
+                else:
+                    self.safety_status_lbl.config(
+                        text=f"🟢 SHIELD ACTIVE: Safe Clearance {min_front_range:.2f} m",
+                        fg="#34d399",
+                        bg="#064e3b",
+                    )
         else:
             front_clearance = float(sector_ranges[11:14].min())
             if front_clearance < 0.28:
@@ -1431,16 +1288,19 @@ class AutonomousNavApp:
                         self.boundary_hold_count = 1
                     self.last_boundary_hold_pos = (rx, ry)
 
-                    if self.boundary_hold_count >= 15:
-                        # Sustained boundary hold in tight pinch point -> trigger dynamic alternative reroute!
-                        self.trigger_alternative_path_reroute("Sustained boundary hold in pinch")
-                        self.boundary_hold_count = 0
-                    elif not self.recovery_mode:
+                    if self.boundary_hold_count >= 12:
                         self.recovery_mode = True
                         self.recovery_steps = 8
                         closest_idx = int(np.argmin(sector_ranges))
                         self.recovery_direction = -1.0 if closest_idx >= 12 else 1.0
-                        self.update_status("🛡️ SAFETY SHIELD: Boundary hold — aligning to passage...", "#d97706")
+                        self.boundary_hold_count = 0
+                        self.update_status("🛡️ SAFETY SHIELD: Disengaging boundary hold...", "#d97706")
+                    elif not self.recovery_mode:
+                        self.recovery_mode = True
+                        self.recovery_steps = 6
+                        closest_idx = int(np.argmin(sector_ranges))
+                        self.recovery_direction = -1.0 if closest_idx >= 12 else 1.0
+                        self.update_status("🛡️ SAFETY SHIELD: Aligning to passage...", "#d97706")
         else:
             nx, ny, nth = cand_x, cand_y, cand_th
             if self.boundary_hold_count > 0:
@@ -1516,18 +1376,6 @@ class AutonomousNavApp:
                 )
                 self.ax.add_patch(preview_rect)
 
-            # Dynamic Impasse Zones (Visual Marker for Alternative Path Rerouting)
-            for imp in self.dynamic_impasses:
-                ix, iy, ir = imp["x"], imp["y"], imp["radius"]
-                circ = Circle(
-                    (ix, iy), ir, facecolor="#f97316", edgecolor="#ea580c",
-                    linestyle="--", linewidth=1.2, alpha=0.22, zorder=3
-                )
-                self.ax.add_patch(circ)
-                self.ax.text(
-                    ix, iy, "⚠️ IMPASSE", color="#fb923c", fontsize=6.5,
-                    fontweight="bold", ha="center", va="center", zorder=5
-                )
 
             # SLAM Fog of War Exploration Layer
             if self.slam_exploration_mode.get():

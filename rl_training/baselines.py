@@ -21,6 +21,7 @@ from . import config as C
 from .metrics import summarize
 from .nav_env import NavEnv
 from .obs import cmd_to_action, goal_in_robot_frame, action_to_cmd
+from .safety import NavigationSafetyFilter, SafetyConfig
 from .scenarios import make_scenarios
 
 
@@ -105,63 +106,79 @@ class PPOController(Controller):
 
 
 class GovernorPPOController(Controller):
-    """PPO Local Policy augmented with Layers 1-3 Continuous CBF Safety Governor.
+    """PPO Local Policy augmented with Layer 2 Predictive Stopping-Distance Governor.
     
     Ablation controller: strictly forward-only action space (v in [0, V_MAX]).
-    No reverse recovery maneuvers. Proves that analytical stopping-distance constraints
-    alone eliminate collisions without expanding the action space.
+    Evaluates kinematic stopping-distance bounds (v^2 <= 2*a*d) in isolation.
     """
     def __init__(self, model, name: str = "ppo_governor"):
         self.model, self.name = model, name
+        self.filter = NavigationSafetyFilter(SafetyConfig(
+            enable_governor=True,
+            enable_centering=False,
+            enable_recovery=False,
+        ))
 
     def reset(self, env):
-        pass
+        self.filter.reset()
 
     def act(self, env, obs):
         raw_act = self.model.predict(obs, deterministic=True)[0]
         v, w = action_to_cmd(raw_act)
-
         sector_ranges = obs[:C.N_SECTORS] * C.RANGE_MAX
-        front_narrow = sector_ranges[10:15]  # ±30°
-        front_wide = sector_ranges[8:17]     # ±60°
-        min_front = float(front_narrow.min())
-        min_wide = float(front_wide.min())
+        est_pose = getattr(env, "believed_pose", env.pose)[:2]
+        safe_v, safe_w, _ = self.filter.filter_command(v, w, sector_ranges, estimated_pose=est_pose)
+        return cmd_to_action(max(0.0, safe_v), safe_w)
 
-        # Layer 2: Analytical Discrete-Time CBF Stopping-Distance Governor
-        clearance = max(0.0, min_wide - C.ROBOT_RADIUS - 0.06)
-        v_allowable = math.sqrt(2.0 * C.A_V_MAX * clearance)
-        v = min(v, v_allowable)
-        if min_front < C.ROBOT_RADIUS + 0.08:
-            v = 0.0
 
-        # Layer 3: Lateral Repulsive Potential Field Steering & Doorway Centering
-        left_dist = float(sector_ranges[13:18].min())
-        right_dist = float(sector_ranges[7:12].min())
-        left_flank = float(sector_ranges[14:18].min())
-        right_flank = float(sector_ranges[6:10].min())
-        repulse_w = 0.0
+class PPOBrakingSteeringController(Controller):
+    """PPO with Layer 2 Stopping Governor + Layer 3 Lateral Repulsion & Doorway Centering.
+    
+    Ablation controller: proves the effect of active portal midline tracking without reverse escape.
+    """
+    def __init__(self, model, name: str = "ppo_gov_steering"):
+        self.model, self.name = model, name
+        self.filter = NavigationSafetyFilter(SafetyConfig(
+            enable_governor=True,
+            enable_centering=True,
+            enable_recovery=False,
+        ))
 
-        if left_dist < 0.65 and right_dist < 0.65:
-            # Doorway/corridor centering bias
-            repulse_w = 0.85 * (left_dist - right_dist)
-        else:
-            if left_dist < 0.45:
-                repulse_w -= 0.7 * (1.0 - left_dist / 0.45)
-            if right_dist < 0.45:
-                repulse_w += 0.7 * (1.0 - right_dist / 0.45)
-        w = float(np.clip(w + repulse_w, -C.W_MAX, C.W_MAX))
+    def reset(self, env):
+        self.filter.reset()
 
-        # Flank pinch protection: slow down if side clearance is tight
-        if min(left_flank, right_flank) < (C.ROBOT_RADIUS + 0.035):
-            v = min(v, 0.08)
+    def act(self, env, obs):
+        raw_act = self.model.predict(obs, deterministic=True)[0]
+        v, w = action_to_cmd(raw_act)
+        sector_ranges = obs[:C.N_SECTORS] * C.RANGE_MAX
+        est_pose = getattr(env, "believed_pose", env.pose)[:2]
+        safe_v, safe_w, _ = self.filter.filter_command(v, w, sector_ranges, estimated_pose=est_pose)
+        return cmd_to_action(max(0.0, safe_v), safe_w)
 
-        # Anti-Deadlock Symmetry Breaking
-        if v == 0.0:
-            preferred_dir = 1.0 if left_dist >= right_dist else -1.0
-            if abs(w) < 0.4:
-                w = 0.85 * preferred_dir
 
-        return cmd_to_action(max(0.0, v), w)
+class PPOBrakingRecoveryController(Controller):
+    """PPO with Layer 2 Stopping Governor + Layer 4 Reverse-and-Pivot Recovery.
+    
+    Ablation controller: proves the effect of reversing out of deadlocks without lateral centering.
+    """
+    def __init__(self, model, name: str = "ppo_gov_recovery"):
+        self.model, self.name = model, name
+        self.filter = NavigationSafetyFilter(SafetyConfig(
+            enable_governor=True,
+            enable_centering=False,
+            enable_recovery=True,
+        ))
+
+    def reset(self, env):
+        self.filter.reset()
+
+    def act(self, env, obs):
+        raw_act = self.model.predict(obs, deterministic=True)[0]
+        v, w = action_to_cmd(raw_act)
+        sector_ranges = obs[:C.N_SECTORS] * C.RANGE_MAX
+        est_pose = getattr(env, "believed_pose", env.pose)[:2]
+        safe_v, safe_w, _ = self.filter.filter_command(v, w, sector_ranges, estimated_pose=est_pose)
+        return cmd_to_action(safe_v, safe_w)
 
 
 class MASRLController(Controller):
@@ -169,106 +186,33 @@ class MASRLController(Controller):
     
     Full 4-Layer Architecture:
     1. Multi-sector forward arc collision forecasting (sectors 8 to 16, ±60°)
-    2. Discrete-Time Control Barrier Function (CBF) stopping-distance governor
-    3. Lateral repulsive potential field steering
-    4. Anti-deadlock symmetry breaking & stagnation watchdog
-    5. Autonomous escape reverse-and-pivot recovery (v = -0.12 m/s) when trapped
+    2. Predictive stopping-distance governor (v^2 <= 2*a*d)
+    3. Lateral repulsive potential field steering & doorway midline centering
+    4. Anti-deadlock watchdog (using estimated/believed pose) & verified rear-clearance recovery
     """
     def __init__(self, model, name: str = "mas_rl"):
         self.model, self.name = model, name
-        self.recovery_steps = 0
-        self.recovery_dir = 1.0
-        self.history = []
+        self.filter = NavigationSafetyFilter(SafetyConfig(
+            enable_governor=True,
+            enable_centering=True,
+            enable_recovery=True,
+        ))
 
     def reset(self, env):
-        self.recovery_steps = 0
-        self.recovery_dir = 1.0
-        self.history.clear()
+        self.filter.reset()
 
     def act(self, env, obs):
-        sector_ranges = obs[:C.N_SECTORS] * C.RANGE_MAX
-        front_narrow = sector_ranges[10:15]  # ±30°
-        front_wide = sector_ranges[8:17]     # ±60°
-        min_front = float(front_narrow.min())
-        min_wide = float(front_wide.min())
-        min_overall = float(sector_ranges.min())
-        left_dist = float(sector_ranges[13:18].min())
-        right_dist = float(sector_ranges[7:12].min())
-
-        # 1. Active Recovery State Machine
-        if self.recovery_steps > 0:
-            self.recovery_steps -= 1
-            # Check rear clearance before backing up
-            rear_sectors = sector_ranges[[22, 23, 0, 1, 2]]
-            if float(rear_sectors.min()) > C.ROBOT_RADIUS + 0.08:
-                return cmd_to_action(-0.12, 0.85 * self.recovery_dir)
-            else:
-                return cmd_to_action(0.0, 0.95 * self.recovery_dir)
-
-        # 2. Query Raw PPO Policy
         raw_act = self.model.predict(obs, deterministic=True)[0]
         v, w = action_to_cmd(raw_act)
-
-        # 3. Emergency Proximity & Stagnation Detection
-        rx, ry = float(env.pose[0]), float(env.pose[1])
-        self.history.append((rx, ry))
-        if len(self.history) > 15:
-            self.history.pop(0)
-
-        is_stagnated = False
-        if len(self.history) == 15:
-            disp = math.hypot(rx - self.history[0][0], ry - self.history[0][1])
-            if disp < 0.04 and env.steps > 15:
-                is_stagnated = True
-
-        if min_overall < C.ROBOT_RADIUS + 0.04 or is_stagnated:
-            self.recovery_steps = 8
-            closest_idx = int(np.argmin(sector_ranges))
-            self.recovery_dir = -1.0 if closest_idx >= 12 else 1.0
-            self.history.clear()
-            rear_sectors = sector_ranges[[22, 23, 0, 1, 2]]
-            if float(rear_sectors.min()) > C.ROBOT_RADIUS + 0.08:
-                return cmd_to_action(-0.12, 0.85 * self.recovery_dir)
-            else:
-                return cmd_to_action(0.0, 0.95 * self.recovery_dir)
-
-        # 4. Predictive Stopping-Distance Governor (Discrete CBF)
-        clearance = max(0.0, min_wide - C.ROBOT_RADIUS - 0.06)
-        v_allowable = math.sqrt(2.0 * C.A_V_MAX * clearance)
-        v = min(v, v_allowable)
-        if min_front < C.ROBOT_RADIUS + 0.08:
-            v = 0.0
-
-        # 5. Lateral Repulsive Potential Field Steering & Doorway Centering
-        left_flank = float(sector_ranges[14:18].min())
-        right_flank = float(sector_ranges[6:10].min())
-        repulse_w = 0.0
-
-        if left_dist < 0.65 and right_dist < 0.65:
-            # Doorway/corridor centering bias
-            repulse_w = 0.85 * (left_dist - right_dist)
-        else:
-            if left_dist < 0.45:
-                repulse_w -= 0.7 * (1.0 - left_dist / 0.45)
-            if right_dist < 0.45:
-                repulse_w += 0.7 * (1.0 - right_dist / 0.45)
-        w = float(np.clip(w + repulse_w, -C.W_MAX, C.W_MAX))
-
-        # Flank pinch protection: slow down if side clearance is tight
-        if min(left_flank, right_flank) < (C.ROBOT_RADIUS + 0.035):
-            v = min(v, 0.08)
-
-        # 6. Anti-Deadlock Symmetry Breaking
-        if v == 0.0:
-            preferred_dir = 1.0 if left_dist >= right_dist else -1.0
-            if abs(w) < 0.4:
-                w = 0.85 * preferred_dir
-
-        return cmd_to_action(v, w)
+        sector_ranges = obs[:C.N_SECTORS] * C.RANGE_MAX
+        est_pose = getattr(env, "believed_pose", env.pose)[:2]
+        safe_v, safe_w, _ = self.filter.filter_command(v, w, sector_ranges, estimated_pose=est_pose)
+        return cmd_to_action(safe_v, safe_w)
 
 
-# Backward-compatible alias
+# Backward-compatible aliases
 ShieldedPPOController = MASRLController
+PPOBrakingGovernorController = GovernorPPOController
 
 
 def run_episode(env: NavEnv, ctrl: Controller, scenario=None, seed: int | None = None,

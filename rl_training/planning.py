@@ -95,23 +95,30 @@ def nearest_finite(field: np.ndarray, rc: tuple[int, int], radius: int = 6):
 
 def extract_path(field: np.ndarray, rc: tuple[int, int], max_len: float,
                  res: float = C.GRID_RES) -> list[tuple[int, int]]:
-    """Greedy descent of the geodesic field starting at `rc` until `max_len` metres
+    """Greedy steepest descent of the geodesic field starting at `rc` until `max_len` metres
     of path were collected or the goal (field == 0) is reached."""
     start = nearest_finite(field, rc)
-    if start is None:
+    if start is None or not np.isfinite(field[start[0], start[1]]):
         return []
     path, length = [start], 0.0
     r, c = start
     ny, nx = field.shape
-    while length < max_len and field[r, c] > 0.0:
-        best, best_v = None, field[r, c]
+    visited = {(r, c)}
+    while length < max_len and field[r, c] > 1e-4:
+        best, best_grad, bw = None, 0.0, 1.0
+        cur_v = field[r, c]
         for dr, dc, w in _NBRS:
             rr, cc = r + dr, c + dc
-            if 0 <= rr < ny and 0 <= cc < nx and field[rr, cc] < best_v:
-                best, best_v, bw = (rr, cc), field[rr, cc], w
+            if 0 <= rr < ny and 0 <= cc < nx and (rr, cc) not in visited:
+                val = field[rr, cc]
+                if np.isfinite(val) and val < cur_v:
+                    grad = (cur_v - val) / w
+                    if grad > best_grad:
+                        best, best_grad, bw = (rr, cc), grad, w
         if best is None:
             break
         r, c = best
+        visited.add((r, c))
         length += bw * res
         path.append(best)
     return path
